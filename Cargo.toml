@@ -1,0 +1,22 @@
+
+[workspace]
+members = [
+    "programs/component-planet",
+    "programs/component-resources",
+    "programs/component-fleet",
+    "programs/system-produce",
+    "programs/system-build",
+    "programs/system-launch",
+    "programs/system-shipyard",
+    "programs/system-attack",
+]
+resolver = "2"
+
+[workspace.dependencies]
+bolt-lang = { version = "=0.2.2" }
+anchor-lang = { version = "0.30.1" }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
