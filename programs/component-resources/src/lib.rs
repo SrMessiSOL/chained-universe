@@ -8,7 +8,6 @@ declare_id!("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss");
 ///
 /// All amounts stored as u64 raw units (not fixed-point) for simplicity.
 #[component]
-#[derive(Default)]
 pub struct Resources {
     // ── Stockpiles ────────────────────────────────────────────────────────
     pub metal: u64,
@@ -31,6 +30,26 @@ pub struct Resources {
 
     /// Last time resources were settled (Unix seconds)
     pub last_update_ts: i64,
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Self {
+            bolt_metadata: Default::default(),
+            metal: 500,
+            crystal: 500,
+            deuterium: 0,
+            metal_hour: 33,
+            crystal_hour: 22,
+            deuterium_hour: 14,
+            energy_production: 22,
+            energy_consumption: 42,
+            metal_cap: 10_000,
+            crystal_cap: 10_000,
+            deuterium_cap: 10_000,
+            last_update_ts: 0,
+        }
+    }
 }
 
 impl Resources {
