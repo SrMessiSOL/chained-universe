@@ -24,9 +24,26 @@ fn ship_cost(ship_type: u8) -> (u64, u64, u64) {
     }
 }
 
+fn require_component_authority(
+    authority: &AccountInfo,
+    fleet: &Fleet,
+    resources: &Resources,
+) -> Result<()> {
+    require!(authority.is_signer, ShipyardError::Unauthorized);
+    require_keys_eq!(fleet.bolt_metadata.authority, *authority.key, ShipyardError::Unauthorized);
+    require_keys_eq!(resources.bolt_metadata.authority, *authority.key, ShipyardError::Unauthorized);
+    Ok(())
+}
+
 #[system]
 pub mod system_shipyard {
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
+        require_component_authority(
+            &ctx.accounts.authority,
+            &ctx.accounts.fleet,
+            &ctx.accounts.resources,
+        )?;
+
         require!(args.len() >= 10, ShipyardError::InvalidArgs);
         let ship_type = args[0];
         let quantity  = u32::from_le_bytes(args[1..5].try_into().unwrap());
@@ -80,6 +97,7 @@ pub mod system_shipyard {
 #[error_code]
 pub enum ShipyardError {
     #[msg("Invalid args")]           InvalidArgs,
+    #[msg("Unauthorized")]           Unauthorized,
     #[msg("Invalid ship type")]      InvalidShipType,
     #[msg("Insufficient metal")]     InsufficientMetal,
     #[msg("Insufficient crystal")]   InsufficientCrystal,

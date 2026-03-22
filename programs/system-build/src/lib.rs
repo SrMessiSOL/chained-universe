@@ -41,9 +41,26 @@ fn build_seconds(idx: u8, level: u64, robotics: u64) -> i64 {
     (total / (2_500u64 * (1 + robotics)).max(1)).max(1) as i64
 }
 
+fn require_component_authority(
+    authority: &AccountInfo,
+    planet: &Planet,
+    resources: &Resources,
+) -> Result<()> {
+    require!(authority.is_signer, BuildError::Unauthorized);
+    require_keys_eq!(planet.bolt_metadata.authority, *authority.key, BuildError::Unauthorized);
+    require_keys_eq!(resources.bolt_metadata.authority, *authority.key, BuildError::Unauthorized);
+    Ok(())
+}
+
 #[system]
 pub mod system_build {
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
+        require_component_authority(
+            &ctx.accounts.authority,
+            &ctx.accounts.planet,
+            &ctx.accounts.resources,
+        )?;
+
         require!(args.len() >= 10, BuildError::InvalidArgs);
         let instruction = args[0];
         let now = i64::from_le_bytes(args[2..10].try_into().unwrap());
@@ -110,6 +127,7 @@ pub mod system_build {
 #[error_code]
 pub enum BuildError {
     #[msg("Invalid args")]           InvalidArgs,
+    #[msg("Unauthorized")]           Unauthorized,
     #[msg("Queue busy")]             QueueBusy,
     #[msg("No fields")]              NoFields,
     #[msg("Insufficient metal")]     InsufficientMetal,

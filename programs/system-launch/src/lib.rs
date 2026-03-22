@@ -1,5 +1,5 @@
 use bolt_lang::*;
-use component_fleet::{Fleet, Mission, MAX_MISSIONS};
+use component_fleet::{Fleet, Mission};
 use component_resources::Resources;
 
 declare_id!("9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT");
@@ -14,9 +14,26 @@ fn i64_at(b: &[u8], o: usize) -> i64 {
     i64::from_le_bytes(b[o..o+8].try_into().unwrap_or([0;8]))
 }
 
+fn require_component_authority(
+    authority: &AccountInfo,
+    fleet: &Fleet,
+    resources: &Resources,
+) -> Result<()> {
+    require!(authority.is_signer, LaunchError::Unauthorized);
+    require_keys_eq!(fleet.bolt_metadata.authority, *authority.key, LaunchError::Unauthorized);
+    require_keys_eq!(resources.bolt_metadata.authority, *authority.key, LaunchError::Unauthorized);
+    Ok(())
+}
+
 #[system]
 pub mod system_launch {
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
+        require_component_authority(
+            &ctx.accounts.authority,
+            &ctx.accounts.fleet,
+            &ctx.accounts.resources,
+        )?;
+
         require!(args.len() >= 94, LaunchError::InvalidArgs);
 
         let mission_type   = args[0];
@@ -123,6 +140,7 @@ pub mod system_launch {
 #[error_code]
 pub enum LaunchError {
     #[msg("Invalid args")]            InvalidArgs,
+    #[msg("Unauthorized")]            Unauthorized,
     #[msg("Invalid mission")]         InvalidMission,
     #[msg("Empty fleet")]             EmptyFleet,
     #[msg("No fleet slot")]           NoSlot,

@@ -16,9 +16,21 @@ fn hul(lf:u32,hf:u32,cr:u32,bs:u32,bc:u32,bm:u32,ds:u32,de:u32)->u64{
 }
 fn sc(n:u32,r:u64)->u32{((n as u64*r)/1_000)as u32}
 
+fn require_component_authority(authority: &AccountInfo, attacker_fleet: &component_fleet::Fleet) -> Result<()> {
+    require!(authority.is_signer, E::Unauthorized);
+    require_keys_eq!(
+        attacker_fleet.bolt_metadata.authority,
+        *authority.key,
+        E::Unauthorized
+    );
+    Ok(())
+}
+
 #[system]
 pub mod system_attack {
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
+        require_component_authority(&ctx.accounts.authority, &ctx.accounts.attacker_fleet)?;
+
         require!(args.len() >= 9, E::InvalidArgs);
         let slot = args[0] as usize;
         let now  = i64::from_le_bytes(args[1..9].try_into().unwrap());
@@ -133,6 +145,7 @@ pub struct BattleResult { pub attacker_wins: bool, pub rounds: u8 }
 
 #[error_code]
 pub enum E {
+    #[msg("Unauthorized")]      Unauthorized,
     #[msg("Invalid args")]      InvalidArgs,
     #[msg("Invalid slot")]      InvalidSlot,
     #[msg("Not an attack")]     NotAttack,

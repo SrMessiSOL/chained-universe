@@ -6,7 +6,6 @@ declare_id!("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6");
 /// Stores per-planet metadata and all building levels.
 /// Attached to a planet Entity via the BOLT World program.
 #[component]
-#[derive(Default)]
 pub struct Planet {
     /// Owner wallet
     pub owner: Pubkey,
@@ -44,6 +43,39 @@ pub struct Planet {
     pub build_queue_target: u8,
     /// Unix timestamp when build completes (0 = idle)
     pub build_finish_ts: i64,
+}
+
+impl Default for Planet {
+    fn default() -> Self {
+        Self {
+            bolt_metadata: Default::default(),
+            owner: Pubkey::default(),
+            name: [0; 32],
+            galaxy: 0,
+            system: 0,
+            position: 0,
+            diameter: 0,
+            temperature: 0,
+            max_fields: 163,
+            used_fields: 3,
+            metal_mine: 1,
+            crystal_mine: 1,
+            deuterium_synthesizer: 1,
+            solar_plant: 1,
+            fusion_reactor: 0,
+            robotics_factory: 0,
+            nanite_factory: 0,
+            shipyard: 0,
+            metal_storage: 0,
+            crystal_storage: 0,
+            deuterium_tank: 0,
+            research_lab: 0,
+            missile_silo: 0,
+            build_queue_item: 255,
+            build_queue_target: 0,
+            build_finish_ts: 0,
+        }
+    }
 }
 
 impl Planet {
