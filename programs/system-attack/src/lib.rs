@@ -100,6 +100,7 @@ pub mod system_attack {
         ctx.accounts.defender_fleet.battlecruiser=dbc2; ctx.accounts.defender_fleet.bomber=dbm2;
         ctx.accounts.defender_fleet.destroyer=dds2; ctx.accounts.defender_fleet.deathstar=dde2;
 
+        // Update surviving attacker ships in mission slot
         {
             let m = &mut ctx.accounts.attacker_fleet.missions[slot];
             m.s_light_fighter=rlf; m.s_heavy_fighter=rhf; m.s_cruiser=rcr;
@@ -120,13 +121,50 @@ pub mod system_attack {
             m.cargo_metal=sm; m.cargo_crystal=sc2; m.cargo_deuterium=sd;
         }
 
+        // Set return ETA — ships will fly back
         {
             let m=&mut ctx.accounts.attacker_fleet.missions[slot];
             m.applied=true;
             m.return_ts=now+(m.arrive_ts-m.depart_ts);
         }
-        ctx.accounts.attacker_fleet.active_missions=
-            ctx.accounts.attacker_fleet.active_missions.saturating_sub(1);
+
+        // FIXED: Return ships to stationed fleet and clear mission slot
+        // This resolves the issue where mission slots were never freed,
+        // and cargo+ships were never actually added back to the player.
+        {
+            let return_ts = ctx.accounts.attacker_fleet.missions[slot].return_ts;
+            if now >= return_ts {
+                // Return is already due — process it immediately
+                let m = &ctx.accounts.attacker_fleet.missions[slot];
+                let (ret_lf,ret_hf,ret_cr,ret_bs,ret_bc,ret_bm,ret_ds,ret_de,ret_sc,ret_lc) =
+                    (m.s_light_fighter,m.s_heavy_fighter,m.s_cruiser,m.s_battleship,
+                     m.s_battlecruiser,m.s_bomber,m.s_destroyer,m.s_deathstar,
+                     m.s_small_cargo,m.s_large_cargo);
+                let (cm,cc,cd) = (m.cargo_metal,m.cargo_crystal,m.cargo_deuterium);
+
+                let f = &mut ctx.accounts.attacker_fleet;
+                f.light_fighter   = f.light_fighter.saturating_add(ret_lf);
+                f.heavy_fighter   = f.heavy_fighter.saturating_add(ret_hf);
+                f.cruiser         = f.cruiser.saturating_add(ret_cr);
+                f.battleship      = f.battleship.saturating_add(ret_bs);
+                f.battlecruiser   = f.battlecruiser.saturating_add(ret_bc);
+                f.bomber          = f.bomber.saturating_add(ret_bm);
+                f.destroyer       = f.destroyer.saturating_add(ret_ds);
+                f.deathstar       = f.deathstar.saturating_add(ret_de);
+                f.small_cargo     = f.small_cargo.saturating_add(ret_sc);
+                f.large_cargo     = f.large_cargo.saturating_add(ret_lc);
+                // Credit looted resources
+                ctx.accounts.attacker_resources.metal = ctx.accounts.attacker_resources.metal.saturating_add(cm);
+                ctx.accounts.attacker_resources.crystal = ctx.accounts.attacker_resources.crystal.saturating_add(cc);
+                ctx.accounts.attacker_resources.deuterium = ctx.accounts.attacker_resources.deuterium.saturating_add(cd);
+                // Clear the slot
+                ctx.accounts.attacker_fleet.missions[slot] = component_fleet::Mission::default();
+                ctx.accounts.attacker_fleet.active_missions =
+                    ctx.accounts.attacker_fleet.active_missions.saturating_sub(1);
+            }
+            // else: return flight still in progress — leave slot as-is with applied=true
+            // The frontend will call system-attack again once return_ts has passed
+        }
 
         emit!(BattleResult{attacker_wins,rounds});
         Ok(ctx.accounts)
@@ -135,6 +173,7 @@ pub mod system_attack {
     #[system_input]
     pub struct Components {
         pub attacker_fleet:     component_fleet::Fleet,
+        pub attacker_resources: component_resources::Resources,
         pub defender_fleet:     component_fleet::Fleet,
         pub defender_resources: component_resources::Resources,
     }

@@ -7,21 +7,17 @@ declare_id!("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6");
 /// Attached to a planet Entity via the BOLT World program.
 #[component]
 pub struct Planet {
-    /// Owner wallet
+    pub creator: Pubkey,
+    pub entity: Pubkey,
     pub owner: Pubkey,
-    /// Planet name (UTF-8, max 32 bytes)
     pub name: [u8; 32],
-    /// Universe coordinates
     pub galaxy: u16,
     pub system: u16,
     pub position: u8,
-    /// Physical properties
-    pub diameter: u32,       // km
-    pub temperature: i16,    // °C
+    pub diameter: u32,
+    pub temperature: i16,
     pub max_fields: u16,
     pub used_fields: u16,
-
-    // ── Building levels ───────────────────────────────────────────────────
     pub metal_mine: u8,
     pub crystal_mine: u8,
     pub deuterium_synthesizer: u8,
@@ -35,13 +31,8 @@ pub struct Planet {
     pub deuterium_tank: u8,
     pub research_lab: u8,
     pub missile_silo: u8,
-
-    // ── Build queue (one slot) ────────────────────────────────────────────
-    /// Building type index (0–12); 255 = none
     pub build_queue_item: u8,
-    /// Target level after upgrade
     pub build_queue_target: u8,
-    /// Unix timestamp when build completes (0 = idle)
     pub build_finish_ts: i64,
 }
 
@@ -79,7 +70,6 @@ impl Default for Planet {
 }
 
 impl Planet {
-    /// Return the current level for a building type index
     pub fn get_level(&self, idx: u8) -> u8 {
         match idx {
             0  => self.metal_mine,
@@ -99,7 +89,6 @@ impl Planet {
         }
     }
 
-    /// Apply a completed level-up
     pub fn set_level(&mut self, idx: u8, level: u8) {
         match idx {
             0  => self.metal_mine = level,

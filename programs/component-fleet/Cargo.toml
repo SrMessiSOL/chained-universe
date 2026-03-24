@@ -6,15 +6,14 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "lib"]
 name = "component_fleet"
+path = "src/lib.rs"
 
 [features]
-default = []
-cpi = ["export-idl"]
-export-idl = []
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
-idl-build = ["bolt-lang/idl-build"]
+cpi = ["no-entrypoint"]
+default = []
 
 [dependencies]
-bolt-lang = { workspace = true }
+bolt-lang = { version = "=0.2.2" }

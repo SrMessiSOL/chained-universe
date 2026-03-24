@@ -38,7 +38,10 @@ fn upgrade_cost(idx: u8, level: u64) -> (u64, u64, u64) {
 fn build_seconds(idx: u8, level: u64, robotics: u64) -> i64 {
     let (bm, bc, _) = base_cost(idx);
     let total = ((bm as u64 + bc as u64) * pow15(level.saturating_sub(1))) / 1_000;
-    (total / (2_500u64 * (1 + robotics)).max(1)).max(1) as i64
+    // Divisor 5 gives meaningful times at low levels (15s for metal mine lv1)
+    // while scaling to hours at high levels. Original 2_500 was calibrated for
+    // OGame's larger base costs and kept everything at 1s here.
+    (total / (5u64 * (1 + robotics)).max(1)).max(1) as i64
 }
 
 fn require_component_authority(
@@ -108,7 +111,9 @@ pub mod system_build {
                     deuterium_tank:        ctx.accounts.planet.deuterium_tank,
                 };
                 ctx.accounts.resources.recalculate(&snap);
-                ctx.accounts.planet.build_queue_item   = 0;
+                // FIX: reset to 255 (not 0) to signal "no build queued"
+                // The UI and on-chain logic both treat 255 as the empty sentinel.
+                ctx.accounts.planet.build_queue_item   = 255;
                 ctx.accounts.planet.build_queue_target = 0;
                 ctx.accounts.planet.build_finish_ts    = 0;
             }

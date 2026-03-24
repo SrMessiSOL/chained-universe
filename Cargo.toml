@@ -9,6 +9,8 @@ members = [
     "programs/system-launch",
     "programs/system-shipyard",
     "programs/system-attack",
+    "programs/system-session",
+    "programs/system-initialize",
 ]
 resolver = "2"
 
@@ -20,3 +22,6 @@ anchor-lang = { version = "0.30.1" }
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
+opt-level = "z"
+strip = true
+

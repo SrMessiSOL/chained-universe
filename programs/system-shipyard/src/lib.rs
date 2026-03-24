@@ -47,7 +47,7 @@ pub mod system_shipyard {
         require!(args.len() >= 10, ShipyardError::InvalidArgs);
         let ship_type = args[0];
         let quantity  = u32::from_le_bytes(args[1..5].try_into().unwrap());
-        let now       = i64::from_le_bytes(args[2..10].try_into().unwrap());
+        let now       = i64::from_le_bytes(args[5..13].try_into().unwrap());
         require!(quantity > 0, ShipyardError::InvalidArgs);
 
         ctx.accounts.resources.settle(now);

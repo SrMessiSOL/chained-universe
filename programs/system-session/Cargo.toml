@@ -1,0 +1,33 @@
+[package]
+name = "system-session"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "system_session"
+path = "src/lib.rs"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+bolt-lang = { version = "=0.2.2" }
+
+# "cpi" feature activates "no-entrypoint" in each component crate, which gates
+# out their global_allocator via BOLT's built-in cfg guard. This is the standard
+# pattern used by all other system programs in this workspace.
+component-planet    = { path = "../component-planet",    features = ["cpi"] }
+component-resources = { path = "../component-resources", features = ["cpi"] }
+component-fleet     = { path = "../component-fleet",     features = ["cpi"] }
+
+# Needed for commit_and_undelegate_accounts used in end_session
+ephemeral-rollups-sdk = { version = "0.6.5", features = ["anchor"] }
+
+[dev-dependencies]
+anchor-client = "0.30.1"
+solana-sdk    = "~1.18"
