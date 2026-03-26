@@ -19,3 +19,6 @@ idl-build = ["bolt-lang/idl-build"]
 [dependencies]
 bolt-lang           = { workspace = true }
 component-resources = { path = "../component-resources", features = ["cpi", "no-entrypoint"] }
+
+[profile.release]
+overflow-checks = true

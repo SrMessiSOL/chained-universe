@@ -25,11 +25,7 @@ declare_id!("EASuSJPK7oY4wjgD5b4XUkkFw7Wp3gCwSzY3u7qwuaHj");
 pub mod system_session {
 
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
-        // Validate that the authority signed
-        require!(
-            ctx.accounts.authority.is_signer,
-            SessionError::Unauthorized
-        );
+
         // args[0] = 0 means end_session (reserved for future use)
         require!(!args.is_empty(), SessionError::InvalidArgs);
         require!(args[0] == 0, SessionError::InvalidArgs);

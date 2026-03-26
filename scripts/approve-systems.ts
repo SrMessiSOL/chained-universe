@@ -42,6 +42,8 @@ async function main() {
     { name: "system_shipyard",   id: "FTav8UK4RKawqyGWRakZhe1zhYV7PUJgPwHK7UnEqnN9"  },
     { name: "system_launch",     id: "9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT"  },
     { name: "system_attack",     id: "8qbBLEdrN6qC1fFJQLM7a6Jqf2xfoDNfSmTQopMELSGm"  },
+    { name: "system_session",    id: "9Zt7h1n2sHjLh3mLZy5c8XoVqj6iKZt7eGzqjYpXoV4a"  },
+    { name: "system_registry",   id: "N1K6B3oiseLvLrvXELjWPdPAuhPw8MjFo3oepnHd5d3"  },
   ];
 
   for (const sys of systems) {

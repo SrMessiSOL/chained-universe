@@ -11,6 +11,7 @@ members = [
     "programs/system-attack",
     "programs/system-session",
     "programs/system-initialize",
+    "programs/system-registry",
 ]
 resolver = "2"
 

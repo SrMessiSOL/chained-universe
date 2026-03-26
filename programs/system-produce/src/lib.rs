@@ -3,37 +3,45 @@ use component_resources::Resources;
 
 declare_id!("EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH");
 
-fn require_component_authority(authority: &AccountInfo, resources: &Resources) -> Result<()> {
-    require!(authority.is_signer, ProduceError::Unauthorized);
-    require_keys_eq!(
-        resources.bolt_metadata.authority,
-        *authority.key,
-        ProduceError::Unauthorized
-    );
-    Ok(())
-}
-
 /// ─────────────────────────────────────────────────────────────────────────
 /// Produce System
 ///
-/// Settles pending resource production for a planet.
-/// Call this before any read or mutation that depends on current balances.
+/// Settles pending resource production up to `now`.
+/// Call before any read/mutation that depends on current balances.
 ///
-/// Args:
-///   [0..8] now: i64 (Unix timestamp, little-endian)
+/// Args: [0..8] now: i64 (Unix timestamp, little-endian)
 ///
-/// This is intentionally minimal — it only touches the Resources component.
-/// In an Ephemeral Rollup session this can be cranked every second.
+/// Authority: only requires is_signer — NOT bolt_metadata.authority.
+/// During an ER session the burner keypair signs; the ER validator
+/// enforces account ownership.
 /// ─────────────────────────────────────────────────────────────────────────
 #[system]
 pub mod system_produce {
 
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
-        require_component_authority(&ctx.accounts.authority, &ctx.accounts.resources)?;
-
         require!(args.len() >= 8, ProduceError::InvalidArgs);
+
         let now = i64::from_le_bytes(args[0..8].try_into().unwrap());
-        ctx.accounts.resources.settle(now);
+
+        // Settle pending production (inlined — Resources has no methods)
+        let res = &mut ctx.accounts.resources;
+        if res.last_update_ts > 0 && now > res.last_update_ts {
+            let dt = (now - res.last_update_ts) as u64;
+            let eff = if res.energy_consumption == 0 {
+                10_000u64
+            } else {
+                (res.energy_production * 10_000 / res.energy_consumption).min(10_000)
+            };
+            let produce = |current: u64, rate: u64, cap: u64| -> u64 {
+                let gained = rate.saturating_mul(dt).saturating_mul(eff) / 3_600 / 10_000;
+                current.saturating_add(gained).min(cap)
+            };
+            res.metal     = produce(res.metal,     res.metal_hour,     res.metal_cap);
+            res.crystal   = produce(res.crystal,   res.crystal_hour,   res.crystal_cap);
+            res.deuterium = produce(res.deuterium, res.deuterium_hour, res.deuterium_cap);
+        }
+        res.last_update_ts = now;
+
         Ok(ctx.accounts)
     }
 

@@ -4,8 +4,21 @@ declare_id!("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss");
 
 /// Resources Component
 ///
-/// All amounts stored as u64 raw units (not fixed-point) for simplicity.
-#[component]
+/// On-chain layout (after 8-byte discriminator):
+///   [8..16]   metal            u64
+///   [16..24]  crystal          u64
+///   [24..32]  deuterium        u64
+///   [32..40]  metal_hour       u64
+///   [40..48]  crystal_hour     u64
+///   [48..56]  deuterium_hour   u64
+///   [56..64]  energy_production u64
+///   [64..72]  energy_consumption u64
+///   [72..80]  metal_cap        u64
+///   [80..88]  crystal_cap      u64
+///   [88..96]  deuterium_cap    u64
+///   [96..104] last_update_ts   i64
+///   [END-32..END] bolt_metadata
+#[component(delegate)]
 pub struct Resources {
     pub metal:              u64,
     pub crystal:            u64,
@@ -24,29 +37,19 @@ pub struct Resources {
 impl Default for Resources {
     fn default() -> Self {
         Self {
-            bolt_metadata: Default::default(),
-            metal: 500,
-            crystal: 500,
-            deuterium: 0,
-            metal_hour: 33,
-            crystal_hour: 22,
-            deuterium_hour: 14,
-            energy_production: 22,
-            energy_consumption: 42,
-            metal_cap: 10_000,
-            crystal_cap: 10_000,
-            deuterium_cap: 10_000,
-            last_update_ts: 0,
-        }
-    }
-}
-
-impl Resources {
-    /// Compute production delta since `last_update_ts` without mutating.
-    /// Applies energy efficiency ratio if in deficit.
-    pub fn pending(&self, now: i64) -> (u64, u64, u64) {
-        if now <= self.last_update_ts {
-            return (0, 0, 0);
+            bolt_metadata:      Default::default(),
+            metal:              0,
+            crystal:            0,
+            deuterium:          0,
+            metal_hour:         0,
+            crystal_hour:       0,
+            deuterium_hour:     0,
+            energy_production:  0,
+            energy_consumption: 0,
+            metal_cap:          0,
+            crystal_cap:        0,
+            deuterium_cap:      0,
+            last_update_ts:     0,
         }
     }
 }
