@@ -10,6 +10,7 @@ import {
   LAMPORTS_PER_SOL,
   AccountMeta,
 } from "@solana/web3.js";
+import { createHash } from "crypto";
 import { AnchorProvider, setProvider } from "@coral-xyz/anchor";
 import { anchor as BoltAnchor, AddEntity, InitializeComponent, ApplySystem, createDelegateInstruction, createUndelegateInstruction } from "@magicblock-labs/bolt-sdk";
 export const ER_DIRECT_RPC = "https://devnet.magicblock.app";
@@ -72,6 +73,7 @@ export interface Planet {
   galaxy:               number;
   system:               number;
   position:             number;
+  planetIndex:          number;
   diameter:             number;
   temperature:          number;
   maxFields:            number;
@@ -317,6 +319,7 @@ export class GameClient {
 
     const fleetPda     = deriveComponentPda(entityPda, PROGRAM_IDS.componentFleet);
     const resourcesPda = deriveComponentPda(entityPda, PROGRAM_IDS.componentResources);
+    const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
 
     const [planetOwnerInfo] = await this.connection.getMultipleAccountsInfo([planetPda]);
     const isDelegated = planetOwnerInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
@@ -328,7 +331,7 @@ export class GameClient {
       fleetPda, resourcesPda, researchPda,
     ]);
 
-    if (!fleetAccount || !resourcesAccount) {
+    if (!fleetAccount || !resourcesAccount || !researchAccount) {
       console.error("[LOOKUP] Missing fleet or resources — trying devnet fallback");
       const [fa2, ra2, rs2] = await this.connection.getMultipleAccountsInfo([fleetPda, resourcesPda, researchPda]);
       if (!fa2 || !ra2) {
@@ -458,11 +461,17 @@ export class GameClient {
     await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
     await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
 
-    const args = Buffer.alloc(64, 0);
+    await sendComponentInit("planet", planetInit.transaction.instructions[0]);
+    await sendComponentInit("research", researchInit.transaction.instructions[0]);
+    await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
+    await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
+
+    const args = Buffer.alloc(useResearchComponent ? 65 : 64, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
     const nameBytes = Buffer.from(planetName.slice(0, 19), "utf8");
     nameBytes.copy(args, 13);
     entityPda.toBuffer().copy(args, 32);
+    if (useResearchComponent) args.writeUInt8(0, 64);
 
     const { transaction: applyTx } = await ApplySystem({
       authority: payer,
@@ -470,11 +479,18 @@ export class GameClient {
       world:     SHARED_WORLD_PDA,
       entities: [{
         entity: entityPda,
-        components: [
-          { componentId: PROGRAM_IDS.componentPlanet    },
-          { componentId: PROGRAM_IDS.componentResources },
-          { componentId: PROGRAM_IDS.componentFleet     },
-        ],
+        components: useResearchComponent
+          ? [
+              { componentId: PROGRAM_IDS.componentPlanet    },
+              { componentId: PROGRAM_IDS.componentResources },
+              { componentId: PROGRAM_IDS.componentFleet     },
+              { componentId: PROGRAM_IDS.componentResearch  },
+            ]
+          : [
+              { componentId: PROGRAM_IDS.componentPlanet    },
+              { componentId: PROGRAM_IDS.componentResources },
+              { componentId: PROGRAM_IDS.componentFleet     },
+            ],
       }],
       args: [],
     });
@@ -647,7 +663,7 @@ export class GameClient {
     const [pAcc, rAcc, fAcc, rsAcc] = await this.connection.getMultipleAccountsInfo([
       planetPda, resourcesPda, fleetPda, researchPda,
     ]);
-    if (!pAcc || !rAcc || !fAcc) throw new Error("Cannot start session: one or more component accounts missing");
+    if (!pAcc || !rAcc || !fAcc || !rsAcc) throw new Error("Cannot start session: one or more component accounts missing");
 
     const alreadyDelegated = pAcc.owner.equals(DELEGATION_PROGRAM_ID);
     if (alreadyDelegated) {
@@ -992,6 +1008,7 @@ export function deserializePlanet(data: Buffer): Planet {
   const galaxy               = readU16(data, o); o += 2;
   const system               = readU16(data, o); o += 2;
   const position             = readU8(data, o);  o += 1;
+  const planetIndex          = readU8(data, o);  o += 1;
   const diameter             = readU32(data, o); o += 4;
   const temperature          = readI16(data, o); o += 2;
   const maxFields            = readU16(data, o); o += 2;
@@ -1013,7 +1030,7 @@ export function deserializePlanet(data: Buffer): Planet {
   const buildQueueTarget     = readU8(data, o); o += 1;
   const buildFinishTs        = readI64(data, o);
   return {
-    creator, entity, owner, name, galaxy, system, position,
+    creator, entity, owner, name, galaxy, system, position, planetIndex,
     diameter, temperature, maxFields, usedFields,
     metalMine, crystalMine, deuteriumSynthesizer, solarPlant,
     fusionReactor, roboticsFactory, naniteFactory, shipyard,
