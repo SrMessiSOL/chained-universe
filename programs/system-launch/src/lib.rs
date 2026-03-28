@@ -1,5 +1,5 @@
 use bolt_lang::*;
-use component_fleet::{Fleet, Mission};
+use component_fleet::Fleet;
 use component_resources::Resources;
 
 declare_id!("9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT");
@@ -74,13 +74,7 @@ pub mod system_launch {
         // FIX: was ctx.accounts.resources.settle(now) — method doesn't exist.
         settle_resources(&mut ctx.accounts.resources, now);
 
-        let slot = {
-            let mut found = None;
-            for (i, m) in ctx.accounts.fleet.missions.iter().enumerate() {
-                if m.mission_type == 0 { found = Some(i); break; }
-            }
-            found.ok_or(LaunchError::NoSlot)?
-        };
+        require!(ctx.accounts.fleet.active_missions < 4, LaunchError::NoSlot);
 
         let f = &ctx.accounts.fleet;
         require!(f.light_fighter   >= lf,  LaunchError::InsufficientShips);
@@ -125,17 +119,6 @@ pub mod system_launch {
         f.recycler        -= rec; f.espionage_probe -= ep;
         f.colony_ship     -= col;
 
-        f.missions[slot] = Mission {
-            mission_type,
-            destination: Pubkey::default(),
-            depart_ts: now, arrive_ts: now + flight_seconds, return_ts: 0,
-            s_light_fighter: lf, s_heavy_fighter: hf, s_cruiser: cr,
-            s_battleship: bs, s_battlecruiser: bc, s_bomber: bm,
-            s_destroyer: ds, s_deathstar: de, s_small_cargo: sc,
-            s_large_cargo: lc, s_recycler: rec, s_espionage_probe: ep,
-            s_colony_ship: col, cargo_metal, cargo_crystal, cargo_deuterium,
-            applied: false,
-        };
         f.active_missions = f.active_missions.saturating_add(1);
 
         Ok(ctx.accounts)
