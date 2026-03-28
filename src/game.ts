@@ -23,7 +23,7 @@ export const PROGRAM_IDS = {
   componentPlanet:    new PublicKey("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6"),
   componentFleet:     new PublicKey("5UuCSuNqVXwCd7qPFQXj8Kp7DAqbB5ZuHFLZZ32paPLD"),
   componentResources: new PublicKey("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss"),
-  componentResearch:  new PublicKey("9YgNLY8u8quhB6nQAj6j4fZh2fWJkM1f5M2wLg2V6P6Y"),
+  componentResearch:  new PublicKey("71Mk6jkgm6SuYBm4GasMHspcNL5vWJ3jhckjtZuYQ9Bu"),
   systemInitialize:   new PublicKey("BvTJfpb1KMtBiKQhcNVvHJnKZAvoRALrm4GYQ2Uz36TX"),
   systemProduce:      new PublicKey("EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH"),
   systemBuild:        new PublicKey("kk7e2mNXHaU3VVtmtzLCZGYP88MDL7EbkFbb9sySfiV"),
@@ -455,11 +455,6 @@ export class GameClient {
         throw e;
       }
     };
-
-    await sendComponentInit("planet", planetInit.transaction.instructions[0]);
-    await sendComponentInit("research", researchInit.transaction.instructions[0]);
-    await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
-    await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
 
     await sendComponentInit("planet", planetInit.transaction.instructions[0]);
     await sendComponentInit("research", researchInit.transaction.instructions[0]);

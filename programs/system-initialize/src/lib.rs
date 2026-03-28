@@ -94,6 +94,14 @@ pub mod system_initialize {
             f.creator = auth_key;
         }
 
+        {
+            let research = &mut ctx.accounts.research;
+            research.creator = auth_key;
+            research.queue_item = 255;
+            research.queue_target = 0;
+            research.research_finish_ts = 0;
+        }
+
         Ok(ctx.accounts)
     }
 
@@ -102,6 +110,7 @@ pub mod system_initialize {
         pub planet: Planet,
         pub resources: Resources,
         pub fleet: Fleet,
+        pub research: Research,
     }
 }
 
