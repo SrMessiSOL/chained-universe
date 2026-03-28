@@ -1,6 +1,7 @@
 use bolt_lang::*;
 use component_fleet::Fleet;
 use component_planet::Planet;
+use component_research::Research;
 use component_resources::Resources;
 
 declare_id!("BvTJfpb1KMtBiKQhcNVvHJnKZAvoRALrm4GYQ2Uz36TX");
@@ -12,7 +13,7 @@ pub mod system_initialize {
             ctx.accounts.planet.creator == Pubkey::default(),
             InitError::AlreadyInitialized
         );
-        require!(args.len() >= 64, InitError::InvalidArgs);
+        require!(args.len() >= 65, InitError::InvalidArgs);
 
         let now = i64::from_le_bytes(args[0..8].try_into().unwrap());
         let galaxy = u16::from_le_bytes(args[8..10].try_into().unwrap());
@@ -49,6 +50,7 @@ pub mod system_initialize {
         let mut entity_bytes = [0u8; 32];
         entity_bytes.copy_from_slice(&args[32..64]);
         let entity_pda = Pubkey::new_from_array(entity_bytes);
+        let planet_index = if args.len() >= 65 { args[64] } else { 0 };
 
         {
             let p = &mut ctx.accounts.planet;
