@@ -21,6 +21,7 @@ pub struct Planet {
     pub galaxy: u16,
     pub system: u16,
     pub position: u8,
+    pub planet_index: u8,
     pub diameter: u32,
     pub temperature: i16,
     pub max_fields: u16,

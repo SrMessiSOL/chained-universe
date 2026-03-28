@@ -67,7 +67,7 @@ pub mod system_launch {
         let now             = i64_at(&args, 78);
         let flight_seconds  = i64_at(&args, 86);
 
-        require!(mission_type >= 1 && mission_type <= 6, LaunchError::InvalidMission);
+        require!(mission_type == 2 || mission_type == 5, LaunchError::InvalidMission);
         require!(flight_seconds > 0, LaunchError::InvalidArgs);
         require!(lf+hf+cr+bs+bc+bm+ds+de+sc+lc+rec+ep+col > 0, LaunchError::EmptyFleet);
 
