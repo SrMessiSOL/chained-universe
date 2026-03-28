@@ -50,7 +50,7 @@ pub mod system_initialize {
         let mut entity_bytes = [0u8; 32];
         entity_bytes.copy_from_slice(&args[32..64]);
         let entity_pda = Pubkey::new_from_array(entity_bytes);
-        let planet_index = args[64];
+        let planet_index = if args.len() >= 65 { args[64] } else { 0 };
 
         {
             let p = &mut ctx.accounts.planet;
@@ -94,14 +94,6 @@ pub mod system_initialize {
             f.creator = auth_key;
         }
 
-        {
-            let rs = &mut ctx.accounts.research;
-            rs.creator = auth_key;
-            rs.queue_item = 255;
-            rs.queue_target = 0;
-            rs.research_finish_ts = 0;
-        }
-
         Ok(ctx.accounts)
     }
 
@@ -110,7 +102,6 @@ pub mod system_initialize {
         pub planet: Planet,
         pub resources: Resources,
         pub fleet: Fleet,
-        pub research: Research,
     }
 }
 
@@ -118,6 +109,6 @@ pub mod system_initialize {
 pub enum InitError {
     #[msg("Planet already initialized")]
     AlreadyInitialized,
-    #[msg("Invalid args — need 65 bytes")]
+    #[msg("Invalid args — need at least 64 bytes")]
     InvalidArgs,
 }
