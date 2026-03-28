@@ -560,7 +560,11 @@ export class GameClient {
     ], args);
   }
 
-  async applyAttack(): Promise<string> {
+  async applyAttack(
+    _attackerEntityPda: PublicKey,
+    _defenderEntityPda: PublicKey,
+    _missionSlot: number,
+  ): Promise<string> {
     throw new Error("Attack flow has been removed; only transport and colonize are supported.");
   }
 
