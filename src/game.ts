@@ -461,6 +461,11 @@ export class GameClient {
     await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
     await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
 
+    await sendComponentInit("planet", planetInit.transaction.instructions[0]);
+    await sendComponentInit("research", researchInit.transaction.instructions[0]);
+    await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
+    await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
+
     const args = Buffer.alloc(useResearchComponent ? 65 : 64, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
     const nameBytes = Buffer.from(planetName.slice(0, 19), "utf8");
