@@ -411,7 +411,7 @@ const CARGO_SHIPS  = ["smallCargo","largeCargo","recycler","espionageProbe","col
 
 const LaunchModal: React.FC<LaunchModalProps> = ({ fleet, res, onClose, onLaunch, txBusy }) => {
   const [shipQty, setShipQty]         = useState<Record<string,number>>({});
-  const [missionType, setMissionType] = useState(1);
+  const [missionType, setMissionType] = useState(2);
   const [cargoM, setCargoM]           = useState(0);
   const [cargoC, setCargoC]           = useState(0);
   const [cargoD, setCargoD]           = useState(0);
@@ -429,8 +429,7 @@ const LaunchModal: React.FC<LaunchModalProps> = ({ fleet, res, onClose, onLaunch
     + getQty("recycler") * 20000 + getQty("cruiser") * 800 + getQty("battleship") * 1500;
   const cargoUsed = cargoM + cargoC + cargoD;
 
-  const needsTarget = missionType === 1 || missionType === 2 || missionType === 3
-    || missionType === 4 || missionType === 5 || missionType === 6;
+  const needsTarget = missionType === 2 || missionType === 5;
 
   const handleLaunch = async () => {
     setLocalErr(null);
@@ -465,8 +464,7 @@ const LaunchModal: React.FC<LaunchModalProps> = ({ fleet, res, onClose, onLaunch
           <div className="modal-label">Mission Type</div>
           <select className="modal-select" value={missionType}
             onChange={e => setMissionType(Number(e.target.value))}>
-            <option value={1}>ATTACK</option>
-            <option value={2}>TRANSPORT</option>
+                        <option value={2}>TRANSPORT</option>
           </select>
         </div>
 
@@ -1513,10 +1511,10 @@ const MissionsTab: React.FC<{
         const returning = m.applied;
         const etaSecs   = returning ? Math.max(0, m.returnTs - nowTs) : Math.max(0, m.arriveTs - nowTs);
         const typeLabel = MISSION_LABELS[m.missionType] ?? "UNKNOWN";
-        const typeClass = m.missionType === 1 ? "attack" : m.missionType === 2 ? "transport" : "other";
+        const typeClass = m.missionType === 2 ? "transport" : "other";
 
         // Attack arrived but not yet resolved
-        const needsResolution = m.missionType === 1 && !m.applied && nowTs >= m.arriveTs;
+        const needsResolution = false;
         // Returning mission that has arrived back
         const returnedHome    = m.applied && nowTs >= m.returnTs;
 
