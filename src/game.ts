@@ -158,6 +158,22 @@ export interface PlayerState {
   isDelegated:  boolean;
 }
 
+function emptyResearch(creator: string): Research {
+  return {
+    creator,
+    energyTech: 0,
+    combustionDrive: 0,
+    impulseDrive: 0,
+    hyperspaceDrive: 0,
+    computerTech: 0,
+    astrophysics: 0,
+    igrNetwork: 0,
+    queueItem: 255,
+    queueTarget: 0,
+    researchFinishTs: 0,
+  };
+}
+
 // ─── BOLT account layout ──────────────────────────────────────────────────────
 const DISC        = 8;
 const COMP_OFFSET = DISC;
@@ -318,13 +334,13 @@ export class GameClient {
     if (!fleetAccount || !resourcesAccount || !researchAccount) {
       console.error("[LOOKUP] Missing fleet or resources — trying devnet fallback");
       const [fa2, ra2, rs2] = await this.connection.getMultipleAccountsInfo([fleetPda, resourcesPda, researchPda]);
-      if (!fa2 || !ra2 || !rs2) {
+      if (!fa2 || !ra2) {
         console.error("[LOOKUP] Both ER and devnet failed for fleet/resources");
         return null;
       }
       const fleet     = deserializeFleet(Buffer.from(fa2.data));
       const resources = deserializeResources(Buffer.from(ra2.data));
-      const research  = deserializeResearch(Buffer.from(rs2.data));
+      const research  = rs2 ? deserializeResearch(Buffer.from(rs2.data)) : emptyResearch(planet.creator);
       return {
         planet, resources, fleet, research, isDelegated,
         entityPda:    entityPda.toBase58(),
@@ -337,7 +353,7 @@ export class GameClient {
 
     const fleet     = deserializeFleet(Buffer.from(fleetAccount.data));
     const resources = deserializeResources(Buffer.from(resourcesAccount.data));
-    const research  = deserializeResearch(Buffer.from(researchAccount.data));
+    const research  = researchAccount ? deserializeResearch(Buffer.from(researchAccount.data)) : emptyResearch(planet.creator);
     console.log("[LOOKUP] ✓ Planet fully loaded — isDelegated:", isDelegated);
     return {
       planet, resources, fleet, research, isDelegated,
@@ -404,23 +420,40 @@ export class GameClient {
     const fleetPda     = fleetInit.componentPda;
     const researchPda  = researchInit.componentPda;
 
-    const initTx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
-      planetInit.transaction.instructions[0],
-      resourcesInit.transaction.instructions[0],
-      fleetInit.transaction.instructions[0],
-      researchInit.transaction.instructions[0],
-    );
-    const initSig = await this.provider.sendAndConfirm(initTx, []);
-    console.log("[2] Components confirmed:", initSig);
+    let useResearchComponent = true;
+    try {
+      const initTx = new Transaction().add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
+        planetInit.transaction.instructions[0],
+        resourcesInit.transaction.instructions[0],
+        fleetInit.transaction.instructions[0],
+        researchInit.transaction.instructions[0],
+      );
+      const initSig = await this.provider.sendAndConfirm(initTx, []);
+      console.log("[2] Components confirmed:", initSig);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (!msg.includes("Unsupported program id")) throw e;
+      useResearchComponent = false;
+      console.warn("[INIT] Research component not registered in World yet; falling back to legacy 3-component init.");
+      const fallbackTx = new Transaction().add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
+        planetInit.transaction.instructions[0],
+        resourcesInit.transaction.instructions[0],
+        fleetInit.transaction.instructions[0],
+      );
+      const fallbackSig = await this.provider.sendAndConfirm(fallbackTx, []);
+      console.log("[2] Legacy components confirmed:", fallbackSig);
+    }
 
-    const args = Buffer.alloc(65, 0);
+    const args = Buffer.alloc(useResearchComponent ? 65 : 64, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
     const nameBytes = Buffer.from(planetName.slice(0, 19), "utf8");
     nameBytes.copy(args, 13);
     entityPda.toBuffer().copy(args, 32);
-    args.writeUInt8(0, 64);
+    if (useResearchComponent) args.writeUInt8(0, 64);
 
     const { transaction: applyTx } = await ApplySystem({
       authority: payer,
@@ -428,12 +461,18 @@ export class GameClient {
       world:     SHARED_WORLD_PDA,
       entities: [{
         entity: entityPda,
-        components: [
-          { componentId: PROGRAM_IDS.componentPlanet    },
-          { componentId: PROGRAM_IDS.componentResources },
-          { componentId: PROGRAM_IDS.componentFleet     },
-          { componentId: PROGRAM_IDS.componentResearch  },
-        ],
+        components: useResearchComponent
+          ? [
+              { componentId: PROGRAM_IDS.componentPlanet    },
+              { componentId: PROGRAM_IDS.componentResources },
+              { componentId: PROGRAM_IDS.componentFleet     },
+              { componentId: PROGRAM_IDS.componentResearch  },
+            ]
+          : [
+              { componentId: PROGRAM_IDS.componentPlanet    },
+              { componentId: PROGRAM_IDS.componentResources },
+              { componentId: PROGRAM_IDS.componentFleet     },
+            ],
       }],
       args: [],
     });
@@ -640,7 +679,7 @@ export class GameClient {
       buildDelegateIx(PROGRAM_IDS.componentPlanet,    planetPda),
       buildDelegateIx(PROGRAM_IDS.componentResources, resourcesPda),
       buildDelegateIx(PROGRAM_IDS.componentFleet,     fleetPda),
-      buildDelegateIx(PROGRAM_IDS.componentResearch,  researchPda),
+      ...(rsAcc ? [buildDelegateIx(PROGRAM_IDS.componentResearch, researchPda)] : []),
     );
     const delegateSig = await this.provider.sendAndConfirm(delegateTx, []);
     console.log("[SESSION] Delegate confirmed:", delegateSig);
@@ -686,7 +725,8 @@ export class GameClient {
     const ixPlanet    = buildUndelegateIx(PROGRAM_IDS.componentPlanet,    planetPda);
     const ixResources = buildUndelegateIx(PROGRAM_IDS.componentResources, resourcesPda);
     const ixFleet     = buildUndelegateIx(PROGRAM_IDS.componentFleet,     fleetPda);
-    const ixResearch  = buildUndelegateIx(PROGRAM_IDS.componentResearch,  researchPda);
+    const researchAcc = await this.connection.getAccountInfo(researchPda, "confirmed");
+    const ixResearch  = researchAcc ? buildUndelegateIx(PROGRAM_IDS.componentResearch, researchPda) : null;
 
     const erSigner = this.erSigner;
 
@@ -697,7 +737,7 @@ export class GameClient {
       freshTx.add(ixPlanet);
       freshTx.add(ixResources);
       freshTx.add(ixFleet);
-      freshTx.add(ixResearch);
+      if (ixResearch) freshTx.add(ixResearch);
       freshTx.feePayer        = undelegatePayer;
       freshTx.recentBlockhash = blockhash;
 
