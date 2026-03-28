@@ -10,6 +10,7 @@ import {
   LAMPORTS_PER_SOL,
   AccountMeta,
 } from "@solana/web3.js";
+import { createHash } from "crypto";
 import { AnchorProvider, setProvider } from "@coral-xyz/anchor";
 import { anchor as BoltAnchor, AddEntity, InitializeComponent, ApplySystem, createDelegateInstruction, createUndelegateInstruction } from "@magicblock-labs/bolt-sdk";
 export const ER_DIRECT_RPC = "https://devnet.magicblock.app";
@@ -318,6 +319,7 @@ export class GameClient {
 
     const fleetPda     = deriveComponentPda(entityPda, PROGRAM_IDS.componentFleet);
     const resourcesPda = deriveComponentPda(entityPda, PROGRAM_IDS.componentResources);
+    const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
 
     const [planetOwnerInfo] = await this.connection.getMultipleAccountsInfo([planetPda]);
     const isDelegated = planetOwnerInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
@@ -329,7 +331,7 @@ export class GameClient {
       fleetPda, resourcesPda, researchPda,
     ]);
 
-    if (!fleetAccount || !resourcesAccount) {
+    if (!fleetAccount || !resourcesAccount || !researchAccount) {
       console.error("[LOOKUP] Missing fleet or resources — trying devnet fallback");
       const [fa2, ra2, rs2] = await this.connection.getMultipleAccountsInfo([fleetPda, resourcesPda, researchPda]);
       if (!fa2 || !ra2) {
@@ -459,11 +461,12 @@ export class GameClient {
     await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
     await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
 
-    const args = Buffer.alloc(64, 0);
+    const args = Buffer.alloc(useResearchComponent ? 65 : 64, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
     const nameBytes = Buffer.from(planetName.slice(0, 19), "utf8");
     nameBytes.copy(args, 13);
     entityPda.toBuffer().copy(args, 32);
+    if (useResearchComponent) args.writeUInt8(0, 64);
 
     const { transaction: applyTx } = await ApplySystem({
       authority: payer,
@@ -471,11 +474,18 @@ export class GameClient {
       world:     SHARED_WORLD_PDA,
       entities: [{
         entity: entityPda,
-        components: [
-          { componentId: PROGRAM_IDS.componentPlanet    },
-          { componentId: PROGRAM_IDS.componentResources },
-          { componentId: PROGRAM_IDS.componentFleet     },
-        ],
+        components: useResearchComponent
+          ? [
+              { componentId: PROGRAM_IDS.componentPlanet    },
+              { componentId: PROGRAM_IDS.componentResources },
+              { componentId: PROGRAM_IDS.componentFleet     },
+              { componentId: PROGRAM_IDS.componentResearch  },
+            ]
+          : [
+              { componentId: PROGRAM_IDS.componentPlanet    },
+              { componentId: PROGRAM_IDS.componentResources },
+              { componentId: PROGRAM_IDS.componentFleet     },
+            ],
       }],
       args: [],
     });
@@ -648,7 +658,7 @@ export class GameClient {
     const [pAcc, rAcc, fAcc, rsAcc] = await this.connection.getMultipleAccountsInfo([
       planetPda, resourcesPda, fleetPda, researchPda,
     ]);
-    if (!pAcc || !rAcc || !fAcc) throw new Error("Cannot start session: one or more component accounts missing");
+    if (!pAcc || !rAcc || !fAcc || !rsAcc) throw new Error("Cannot start session: one or more component accounts missing");
 
     const alreadyDelegated = pAcc.owner.equals(DELEGATION_PROGRAM_ID);
     if (alreadyDelegated) {
