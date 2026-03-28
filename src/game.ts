@@ -22,12 +22,13 @@ export const PROGRAM_IDS = {
   componentPlanet:    new PublicKey("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6"),
   componentFleet:     new PublicKey("5UuCSuNqVXwCd7qPFQXj8Kp7DAqbB5ZuHFLZZ32paPLD"),
   componentResources: new PublicKey("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss"),
+  componentResearch:  new PublicKey("9YgNLY8u8quhB6nQAj6j4fZh2fWJkM1f5M2wLg2V6P6Y"),
   systemInitialize:   new PublicKey("BvTJfpb1KMtBiKQhcNVvHJnKZAvoRALrm4GYQ2Uz36TX"),
   systemProduce:      new PublicKey("EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH"),
   systemBuild:        new PublicKey("kk7e2mNXHaU3VVtmtzLCZGYP88MDL7EbkFbb9sySfiV"),
+  systemResearch:     new PublicKey("4zQaUmY8q4wM9G6vAkQTySbb7NVa8RzQQEtvavB8SshS"),
   systemLaunch:       new PublicKey("9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT"),
   systemShipyard:     new PublicKey("FTav8UK4RKawqyGWRakZhe1zhYV7PUJgPwHK7UnEqnN9"),
-  systemAttack:       new PublicKey("8qbBLEdrN6qC1fFJQLM7a6Jqf2xfoDNfSmTQopMELSGm"),
   systemSession:      new PublicKey("EASuSJPK7oY4wjgD5b4XUkkFw7Wp3gCwSzY3u7qwuaHj"),
 } as const;
 
@@ -71,6 +72,7 @@ export interface Planet {
   galaxy:               number;
   system:               number;
   position:             number;
+  planetIndex:          number;
   diameter:             number;
   temperature:          number;
   maxFields:            number;
@@ -91,6 +93,20 @@ export interface Planet {
   buildQueueItem:       number;
   buildQueueTarget:     number;
   buildFinishTs:        number;
+}
+
+export interface Research {
+  creator:          string;
+  energyTech:       number;
+  combustionDrive:  number;
+  impulseDrive:     number;
+  hyperspaceDrive:  number;
+  computerTech:     number;
+  astrophysics:     number;
+  igrNetwork:       number;
+  queueItem:        number;
+  queueTarget:      number;
+  researchFinishTs: number;
 }
 
 export interface Resources {
@@ -132,10 +148,12 @@ export interface PlayerState {
   planet:       Planet;
   resources:    Resources;
   fleet:        Fleet;
+  research:     Research;
   entityPda:    string;
   planetPda:    string;
   fleetPda:     string;
   resourcesPda: string;
+  researchPda:  string;
   isDelegated:  boolean;
 }
 
@@ -153,7 +171,21 @@ export function deriveComponentPda(entityPda: PublicKey, componentProgramId: Pub
 
 export function deriveRegistryPda(walletPubkey: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("registry"), walletPubkey.toBuffer()],
+    [Buffer.from("registry"), walletPubkey.toBuffer(), Buffer.from([0])],
+    REGISTRY_PROGRAM_ID
+  )[0];
+}
+
+export function deriveRegistryPdaByIndex(walletPubkey: PublicKey, index: number): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("registry"), walletPubkey.toBuffer(), Buffer.from([index])],
+    REGISTRY_PROGRAM_ID
+  )[0];
+}
+
+export function deriveWalletMetaPda(walletPubkey: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("wallet_meta"), walletPubkey.toBuffer()],
     REGISTRY_PROGRAM_ID
   )[0];
 }
@@ -168,6 +200,17 @@ function patchApplyArgs(ix: TransactionInstruction, rawArgs: Buffer): Transactio
     programId: ix.programId,
     data:      Buffer.concat([disc, lenBuf, rawArgs]),
   });
+}
+
+const IX_DISCRIMINATORS: Record<string, number[]> = {
+  init_wallet_meta: [85, 51, 246, 106, 67, 236, 28, 180],
+  register_planet: [213, 91, 78, 118, 207, 133, 98, 238],
+};
+
+function ixDiscriminator(name: string): Buffer {
+  const bytes = IX_DISCRIMINATORS[name];
+  if (!bytes) throw new Error(`Missing instruction discriminator for ${name}`);
+  return Buffer.from(bytes);
 }
 
 // ─── Game client ──────────────────────────────────────────────────────────────
@@ -259,6 +302,7 @@ export class GameClient {
 
     const fleetPda     = deriveComponentPda(entityPda, PROGRAM_IDS.componentFleet);
     const resourcesPda = deriveComponentPda(entityPda, PROGRAM_IDS.componentResources);
+    const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
 
     const [planetOwnerInfo] = await this.connection.getMultipleAccountsInfo([planetPda]);
     const isDelegated = planetOwnerInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
@@ -266,43 +310,47 @@ export class GameClient {
 
     const dataConn = isDelegated ? this.erConnection : this.connection;
 
-    const [fleetAccount, resourcesAccount] = await dataConn.getMultipleAccountsInfo([
-      fleetPda, resourcesPda,
+    const [fleetAccount, resourcesAccount, researchAccount] = await dataConn.getMultipleAccountsInfo([
+      fleetPda, resourcesPda, researchPda,
     ]);
 
-    if (!fleetAccount || !resourcesAccount) {
+    if (!fleetAccount || !resourcesAccount || !researchAccount) {
       console.error("[LOOKUP] Missing fleet or resources — trying devnet fallback");
-      const [fa2, ra2] = await this.connection.getMultipleAccountsInfo([fleetPda, resourcesPda]);
-      if (!fa2 || !ra2) {
+      const [fa2, ra2, rs2] = await this.connection.getMultipleAccountsInfo([fleetPda, resourcesPda, researchPda]);
+      if (!fa2 || !ra2 || !rs2) {
         console.error("[LOOKUP] Both ER and devnet failed for fleet/resources");
         return null;
       }
       const fleet     = deserializeFleet(Buffer.from(fa2.data));
       const resources = deserializeResources(Buffer.from(ra2.data));
+      const research  = deserializeResearch(Buffer.from(rs2.data));
       return {
-        planet, resources, fleet, isDelegated,
+        planet, resources, fleet, research, isDelegated,
         entityPda:    entityPda.toBase58(),
         planetPda:    planetPda.toBase58(),
         fleetPda:     fleetPda.toBase58(),
         resourcesPda: resourcesPda.toBase58(),
+        researchPda:  researchPda.toBase58(),
       };
     }
 
     const fleet     = deserializeFleet(Buffer.from(fleetAccount.data));
     const resources = deserializeResources(Buffer.from(resourcesAccount.data));
+    const research  = deserializeResearch(Buffer.from(researchAccount.data));
     console.log("[LOOKUP] ✓ Planet fully loaded — isDelegated:", isDelegated);
     return {
-      planet, resources, fleet, isDelegated,
+      planet, resources, fleet, research, isDelegated,
       entityPda:    entityPda.toBase58(),
       planetPda:    planetPda.toBase58(),
       fleetPda:     fleetPda.toBase58(),
       resourcesPda: resourcesPda.toBase58(),
+      researchPda:  researchPda.toBase58(),
     };
   }
 
   // ── Find any player's state by wallet pubkey (for attack targeting) ─────────
   async findPlayerByWallet(walletPubkey: PublicKey): Promise<{
-    entityPda: string; fleetPda: string; resourcesPda: string;
+    entityPda: string; fleetPda: string; resourcesPda: string; researchPda: string;
   } | null> {
     try {
       const registry = await this.fetchRegistry(walletPubkey);
@@ -313,10 +361,12 @@ export class GameClient {
       const entityPda = new PublicKey(planet.entity);
       const fleetPda     = deriveComponentPda(entityPda, PROGRAM_IDS.componentFleet);
       const resourcesPda = deriveComponentPda(entityPda, PROGRAM_IDS.componentResources);
+      const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
       return {
         entityPda:    entityPda.toBase58(),
         fleetPda:     fleetPda.toBase58(),
         resourcesPda: resourcesPda.toBase58(),
+        researchPda:  researchPda.toBase58(),
       };
     } catch (e) {
       console.error("[findPlayerByWallet] failed:", e);
@@ -341,15 +391,17 @@ export class GameClient {
     const entityPda = addEntityResult.entityPda;
     console.log("[1] Entity PDA:", entityPda.toBase58());
 
-    const [planetInit, resourcesInit, fleetInit] = await Promise.all([
+    const [planetInit, resourcesInit, fleetInit, researchInit] = await Promise.all([
       InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentPlanet    }),
       InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentResources }),
       InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentFleet     }),
+      InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentResearch  }),
     ]);
 
     const planetPda    = planetInit.componentPda;
     const resourcesPda = resourcesInit.componentPda;
     const fleetPda     = fleetInit.componentPda;
+    const researchPda  = researchInit.componentPda;
 
     const initTx = new Transaction().add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
@@ -357,15 +409,17 @@ export class GameClient {
       planetInit.transaction.instructions[0],
       resourcesInit.transaction.instructions[0],
       fleetInit.transaction.instructions[0],
+      researchInit.transaction.instructions[0],
     );
     const initSig = await this.provider.sendAndConfirm(initTx, []);
     console.log("[2] Components confirmed:", initSig);
 
-    const args = Buffer.alloc(64, 0);
+    const args = Buffer.alloc(65, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
     const nameBytes = Buffer.from(planetName.slice(0, 19), "utf8");
     nameBytes.copy(args, 13);
     entityPda.toBuffer().copy(args, 32);
+    args.writeUInt8(0, 64);
 
     const { transaction: applyTx } = await ApplySystem({
       authority: payer,
@@ -377,6 +431,7 @@ export class GameClient {
           { componentId: PROGRAM_IDS.componentPlanet    },
           { componentId: PROGRAM_IDS.componentResources },
           { componentId: PROGRAM_IDS.componentFleet     },
+          { componentId: PROGRAM_IDS.componentResearch  },
         ],
       }],
       args: [],
@@ -403,9 +458,12 @@ export class GameClient {
 
     console.log("[4] Writing player registry...");
     try {
-      await this.registerPlayer(
+      await this.registerPlanet(
         new PublicKey(state.entityPda),
         new PublicKey(state.planetPda),
+        state.planet.galaxy,
+        state.planet.system,
+        state.planet.position,
       );
       console.log("[4] Registry written");
     } catch (e) {
@@ -438,6 +496,30 @@ export class GameClient {
     ], args);
   }
 
+  async startResearch(entityPda: PublicKey, techIdx: number): Promise<string> {
+    const args = Buffer.alloc(10);
+    args.writeUInt8(0, 0);
+    args.writeUInt8(techIdx, 1);
+    args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 2);
+    return this.applySystem("start_research", entityPda, PROGRAM_IDS.systemResearch, [
+      { componentId: PROGRAM_IDS.componentPlanet },
+      { componentId: PROGRAM_IDS.componentResources },
+      { componentId: PROGRAM_IDS.componentResearch },
+    ], args);
+  }
+
+  async finishResearch(entityPda: PublicKey): Promise<string> {
+    const args = Buffer.alloc(10);
+    args.writeUInt8(1, 0);
+    args.writeUInt8(0, 1);
+    args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 2);
+    return this.applySystem("finish_research", entityPda, PROGRAM_IDS.systemResearch, [
+      { componentId: PROGRAM_IDS.componentPlanet },
+      { componentId: PROGRAM_IDS.componentResources },
+      { componentId: PROGRAM_IDS.componentResearch },
+    ], args);
+  }
+
   async buildShip(entityPda: PublicKey, shipType: number, quantity: number): Promise<string> {
     const args = Buffer.alloc(13);
     args.writeUInt8(shipType, 0);
@@ -446,6 +528,7 @@ export class GameClient {
     return this.applySystem("build_ship", entityPda, PROGRAM_IDS.systemShipyard, [
       { componentId: PROGRAM_IDS.componentFleet },
       { componentId: PROGRAM_IDS.componentResources },
+      { componentId: PROGRAM_IDS.componentResearch },
     ], args);
   }
 
@@ -459,6 +542,9 @@ export class GameClient {
     flightSeconds: number,
     speedFactor = 100,
   ): Promise<string> {
+    if (missionType !== 2 && missionType !== 5) {
+      throw new Error("Only Transport (2) and Colonize (5) missions are supported.");
+    }
     const args = Buffer.alloc(94, 0);
     args.writeUInt8(missionType, 0);
     args.writeUInt32LE(ships.lf  ?? 0,  1);  args.writeUInt32LE(ships.hf  ?? 0,  5);
@@ -480,103 +566,12 @@ export class GameClient {
     ], args);
   }
 
-  // ── Attack: apply the battle for a specific mission slot ─────────────────
-  // Requires 4 entities: attacker fleet+resources, defender fleet+resources.
-  // The system_attack program handles combat resolution on-chain.
   async applyAttack(
-    attackerEntityPda: PublicKey,
-    defenderEntityPda: PublicKey,
-    missionSlot: number,
+    _attackerEntityPda: PublicKey,
+    _defenderEntityPda: PublicKey,
+    _missionSlot: number,
   ): Promise<string> {
-    const args = Buffer.alloc(9);
-    args.writeUInt8(missionSlot, 0);
-    args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 1);
-
-    const attackerFleetPda     = deriveComponentPda(attackerEntityPda, PROGRAM_IDS.componentFleet);
-    const attackerResourcesPda = deriveComponentPda(attackerEntityPda, PROGRAM_IDS.componentResources);
-    const defenderFleetPda     = deriveComponentPda(defenderEntityPda, PROGRAM_IDS.componentFleet);
-    const defenderResourcesPda = deriveComponentPda(defenderEntityPda, PROGRAM_IDS.componentResources);
-
-    console.log("[ATTACK] attackerFleet:", attackerFleetPda.toBase58());
-    console.log("[ATTACK] attackerResources:", attackerResourcesPda.toBase58());
-    console.log("[ATTACK] defenderFleet:", defenderFleetPda.toBase58());
-    console.log("[ATTACK] defenderResources:", defenderResourcesPda.toBase58());
-
-    // system_attack needs both attacker and defender components as separate entities
-    const authority = (this.sessionActive && this.erSigner)
-      ? this.erSigner.publicKey
-      : this.provider.wallet.publicKey;
-
-    const { transaction: applyTx } = await ApplySystem({
-      authority,
-      systemId:  PROGRAM_IDS.systemAttack,
-      world:     SHARED_WORLD_PDA,
-      entities: [
-        {
-          entity: attackerEntityPda,
-          components: [
-            { componentId: PROGRAM_IDS.componentFleet     },
-            { componentId: PROGRAM_IDS.componentResources },
-          ],
-        },
-        {
-          entity: defenderEntityPda,
-          components: [
-            { componentId: PROGRAM_IDS.componentFleet     },
-            { componentId: PROGRAM_IDS.componentResources },
-          ],
-        },
-      ],
-      args: [],
-    });
-
-    const patchedIx = patchApplyArgs(applyTx.instructions[0], args);
-
-    let sig: string;
-    if (this.sessionActive && this.erSigner) {
-      const erConn   = this.erDirectConnection;
-      const erSigner = this.erSigner;
-
-      const sendWithFreshBlockhash = async (): Promise<string> => {
-        const { blockhash, lastValidBlockHeight } = await erConn.getLatestBlockhash("confirmed");
-        const tx = new Transaction().add(
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
-          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
-          patchedIx,
-        );
-        tx.recentBlockhash = blockhash;
-        tx.feePayer        = erSigner.publicKey;
-        tx.sign(erSigner);
-        const txSig = await erConn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
-        await erConn.confirmTransaction({ signature: txSig, blockhash, lastValidBlockHeight }, "confirmed");
-        return txSig;
-      };
-
-      let erSig: string | undefined;
-      for (let attempt = 1; attempt <= 5; attempt++) {
-        try {
-          erSig = await sendWithFreshBlockhash();
-          break;
-        } catch (retryErr: any) {
-          const isBlockhash = retryErr?.message?.includes("Blockhash not found") || retryErr?.message?.includes("-32003");
-          console.warn(`[ATTACK] Attempt ${attempt} failed:`, retryErr?.message?.slice(0, 60));
-          if (!isBlockhash || attempt === 5) throw retryErr;
-          await new Promise(r => setTimeout(r, 300));
-        }
-      }
-      if (!erSig) throw new Error("[ATTACK] Failed after 5 attempts");
-      sig = erSig;
-    } else {
-      const tx = new Transaction().add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
-        patchedIx,
-      );
-      sig = await this.provider.sendAndConfirm(tx, [], { commitment: "confirmed" });
-    }
-
-    console.log("[ATTACK] Confirmed:", sig);
-    return sig;
+    throw new Error("Attack flow has been removed; only transport and colonize are supported.");
   }
 
   isSessionActive(): boolean { return this.sessionActive; }
@@ -603,13 +598,14 @@ export class GameClient {
     const planetPda    = deriveComponentPda(entityPda, PROGRAM_IDS.componentPlanet);
     const resourcesPda = deriveComponentPda(entityPda, PROGRAM_IDS.componentResources);
     const fleetPda     = deriveComponentPda(entityPda, PROGRAM_IDS.componentFleet);
+    const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
 
     console.log("[SESSION] ── startSession ─────────────────────────────");
 
-    const [pAcc, rAcc, fAcc] = await this.connection.getMultipleAccountsInfo([
-      planetPda, resourcesPda, fleetPda,
+    const [pAcc, rAcc, fAcc, rsAcc] = await this.connection.getMultipleAccountsInfo([
+      planetPda, resourcesPda, fleetPda, researchPda,
     ]);
-    if (!pAcc || !rAcc || !fAcc) throw new Error("Cannot start session: one or more component accounts missing");
+    if (!pAcc || !rAcc || !fAcc || !rsAcc) throw new Error("Cannot start session: one or more component accounts missing");
 
     const alreadyDelegated = pAcc.owner.equals(DELEGATION_PROGRAM_ID);
     if (alreadyDelegated) {
@@ -643,6 +639,7 @@ export class GameClient {
       buildDelegateIx(PROGRAM_IDS.componentPlanet,    planetPda),
       buildDelegateIx(PROGRAM_IDS.componentResources, resourcesPda),
       buildDelegateIx(PROGRAM_IDS.componentFleet,     fleetPda),
+      buildDelegateIx(PROGRAM_IDS.componentResearch,  researchPda),
     );
     const delegateSig = await this.provider.sendAndConfirm(delegateTx, []);
     console.log("[SESSION] Delegate confirmed:", delegateSig);
@@ -673,6 +670,7 @@ export class GameClient {
     const planetPda    = deriveComponentPda(entityPda, PROGRAM_IDS.componentPlanet);
     const resourcesPda = deriveComponentPda(entityPda, PROGRAM_IDS.componentResources);
     const fleetPda     = deriveComponentPda(entityPda, PROGRAM_IDS.componentFleet);
+    const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
 
     const erConn = this.erDirectConnection;
 
@@ -687,6 +685,7 @@ export class GameClient {
     const ixPlanet    = buildUndelegateIx(PROGRAM_IDS.componentPlanet,    planetPda);
     const ixResources = buildUndelegateIx(PROGRAM_IDS.componentResources, resourcesPda);
     const ixFleet     = buildUndelegateIx(PROGRAM_IDS.componentFleet,     fleetPda);
+    const ixResearch  = buildUndelegateIx(PROGRAM_IDS.componentResearch,  researchPda);
 
     const erSigner = this.erSigner;
 
@@ -697,6 +696,7 @@ export class GameClient {
       freshTx.add(ixPlanet);
       freshTx.add(ixResources);
       freshTx.add(ixFleet);
+      freshTx.add(ixResearch);
       freshTx.feePayer        = undelegatePayer;
       freshTx.recentBlockhash = blockhash;
 
@@ -760,49 +760,88 @@ export class GameClient {
     console.log("[END_SESSION] ✓ Session ended — all state saved on Solana devnet");
   }
 
-  async registerPlayer(entityPda: PublicKey, planetPda: PublicKey): Promise<string> {
-    const wallet      = this.provider.wallet.publicKey;
-    const registryPda = deriveRegistryPda(wallet);
+  private async ensureWalletMeta(wallet: PublicKey): Promise<PublicKey> {
+    const walletMetaPda = deriveWalletMetaPda(wallet);
+    const existing = await this.connection.getAccountInfo(walletMetaPda, "confirmed");
+    if (existing) return walletMetaPda;
 
-    const existing = await this.connection.getAccountInfo(registryPda, "confirmed");
+    const ix = new TransactionInstruction({
+      programId: REGISTRY_PROGRAM_ID,
+      keys: [
+        { pubkey: wallet, isSigner: true, isWritable: true },
+        { pubkey: walletMetaPda, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: ixDiscriminator("init_wallet_meta"),
+    });
+    await this.provider.sendAndConfirm(new Transaction().add(ix), []);
+    return walletMetaPda;
+  }
 
-    const REGISTER_DISC = Buffer.from([211, 124, 67, 15, 211, 194, 178, 240]);
-    const UPDATE_DISC   = Buffer.from([219, 200, 88, 176, 158, 63, 253, 127]);
-    const disc = existing ? UPDATE_DISC : REGISTER_DISC;
-    const data = Buffer.concat([disc, entityPda.toBuffer(), planetPda.toBuffer()]);
+  async registerPlanet(
+    entityPda: PublicKey,
+    planetPda: PublicKey,
+    galaxy: number,
+    system: number,
+    position: number,
+  ): Promise<string> {
+    const wallet = this.provider.wallet.publicKey;
+    const walletMetaPda = await this.ensureWalletMeta(wallet);
+    const planetCount = await this.fetchPlanetCount(wallet);
+    const registryPda = deriveRegistryPdaByIndex(wallet, planetCount);
+    const coordPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("coord"), Buffer.from(Uint8Array.of(galaxy & 0xff, (galaxy >> 8) & 0xff)), Buffer.from(Uint8Array.of(system & 0xff, (system >> 8) & 0xff)), Buffer.from([position & 0xff])],
+      REGISTRY_PROGRAM_ID
+    )[0];
 
-    const keys = existing
-      ? [
-          { pubkey: wallet,      isSigner: true,  isWritable: false },
-          { pubkey: registryPda, isSigner: false, isWritable: true  },
-        ]
-      : [
-          { pubkey: wallet,      isSigner: true,  isWritable: true  },
-          { pubkey: registryPda, isSigner: false, isWritable: true  },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-        ];
+    const args = Buffer.alloc(8 + 32 + 32 + 2 + 2 + 1);
+    ixDiscriminator("register_planet").copy(args, 0);
+    entityPda.toBuffer().copy(args, 8);
+    planetPda.toBuffer().copy(args, 40);
+    args.writeUInt16LE(galaxy, 72);
+    args.writeUInt16LE(system, 74);
+    args.writeUInt8(position, 76);
 
-    const ix  = new TransactionInstruction({ programId: REGISTRY_PROGRAM_ID, keys, data });
-    const tx  = new Transaction().add(ix);
-    const sig = await this.provider.sendAndConfirm(tx, []);
-    console.log("[REGISTRY] ✓", existing ? "Updated" : "Registered", ":", sig);
+    const ix = new TransactionInstruction({
+      programId: REGISTRY_PROGRAM_ID,
+      keys: [
+        { pubkey: wallet, isSigner: true, isWritable: true },
+        { pubkey: walletMetaPda, isSigner: false, isWritable: true },
+        { pubkey: registryPda, isSigner: false, isWritable: true },
+        { pubkey: coordPda, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: args,
+    });
+
+    const sig = await this.provider.sendAndConfirm(new Transaction().add(ix), []);
+    console.log("[REGISTRY] ✓ Registered planet index", planetCount, ":", sig);
     return sig;
   }
 
-  async fetchRegistry(walletPubkey: PublicKey): Promise<{ entityPda: PublicKey; planetPda: PublicKey } | null> {
-    const registryPda = deriveRegistryPda(walletPubkey);
+  async fetchPlanetCount(walletPubkey: PublicKey): Promise<number> {
+    const walletMetaPda = deriveWalletMetaPda(walletPubkey);
     try {
-      const account = await this.connection.getAccountInfo(registryPda, "confirmed");
-      if (!account) return null;
+      const account = await this.connection.getAccountInfo(walletMetaPda, "confirmed");
+      if (!account) return 0;
       const data = Buffer.from(account.data);
-      if (data.length < 8 + 32 + 32 + 32) return null;
-      const entityPda = new PublicKey(data.slice(8 + 32,      8 + 32 + 32));
-      const planetPda = new PublicKey(data.slice(8 + 32 + 32, 8 + 32 + 32 + 32));
-      return { entityPda, planetPda };
+      if (data.length < 8 + 32 + 1) return 0;
+      return data.readUInt8(8 + 32);
     } catch (e) {
-      console.error("[REGISTRY] fetchRegistry failed:", e);
-      return null;
+      console.error("[REGISTRY] fetchPlanetCount failed:", e);
+      return 0;
     }
+  }
+
+  async fetchRegistry(walletPubkey: PublicKey, index = 0): Promise<{ entityPda: PublicKey; planetPda: PublicKey } | null> {
+    const registryPda = deriveRegistryPdaByIndex(walletPubkey, index);
+    const account = await this.connection.getAccountInfo(registryPda, "confirmed");
+    if (!account) return null;
+    const data = Buffer.from(account.data);
+    if (data.length < 8 + 32 + 1 + 32 + 32) return null;
+    const entityPda = new PublicKey(data.slice(8 + 33, 8 + 33 + 32));
+    const planetPda = new PublicKey(data.slice(8 + 33 + 32, 8 + 33 + 64));
+    return { entityPda, planetPda };
   }
 
   // ── Internal: build + send an ApplySystem transaction ────────────────────
@@ -910,6 +949,7 @@ export function deserializePlanet(data: Buffer): Planet {
   const galaxy               = readU16(data, o); o += 2;
   const system               = readU16(data, o); o += 2;
   const position             = readU8(data, o);  o += 1;
+  const planetIndex          = readU8(data, o);  o += 1;
   const diameter             = readU32(data, o); o += 4;
   const temperature          = readI16(data, o); o += 2;
   const maxFields            = readU16(data, o); o += 2;
@@ -931,12 +971,40 @@ export function deserializePlanet(data: Buffer): Planet {
   const buildQueueTarget     = readU8(data, o); o += 1;
   const buildFinishTs        = readI64(data, o);
   return {
-    creator, entity, owner, name, galaxy, system, position,
+    creator, entity, owner, name, galaxy, system, position, planetIndex,
     diameter, temperature, maxFields, usedFields,
     metalMine, crystalMine, deuteriumSynthesizer, solarPlant,
     fusionReactor, roboticsFactory, naniteFactory, shipyard,
     metalStorage, crystalStorage, deuteriumTank, researchLab,
     missileSilo, buildQueueItem, buildQueueTarget, buildFinishTs,
+  };
+}
+
+export function deserializeResearch(data: Buffer): Research {
+  let o = DISC;
+  const creator          = readPubkey(data, o); o += 32;
+  const energyTech       = readU8(data, o); o += 1;
+  const combustionDrive  = readU8(data, o); o += 1;
+  const impulseDrive     = readU8(data, o); o += 1;
+  const hyperspaceDrive  = readU8(data, o); o += 1;
+  const computerTech     = readU8(data, o); o += 1;
+  const astrophysics     = readU8(data, o); o += 1;
+  const igrNetwork       = readU8(data, o); o += 1;
+  const queueItem        = readU8(data, o); o += 1;
+  const queueTarget      = readU8(data, o); o += 1;
+  const researchFinishTs = readI64(data, o);
+  return {
+    creator,
+    energyTech,
+    combustionDrive,
+    impulseDrive,
+    hyperspaceDrive,
+    computerTech,
+    astrophysics,
+    igrNetwork,
+    queueItem,
+    queueTarget,
+    researchFinishTs,
   };
 }
 
@@ -1076,8 +1144,8 @@ export const SHIP_TYPE_IDX: Record<string, number> = {
 };
 
 export const MISSION_LABELS: Record<number, string> = {
-  1: "ATTACK", 2: "TRANSPORT", 3: "DEPLOYMENT",
-  4: "ESPIONAGE", 5: "COLONIZE", 6: "RECYCLE",
+  2: "TRANSPORT",
+  5: "COLONIZE",
 };
 
 // ─── Cost & time formulas ─────────────────────────────────────────────────────

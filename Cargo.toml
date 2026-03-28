@@ -4,11 +4,12 @@ members = [
     "programs/component-planet",
     "programs/component-resources",
     "programs/component-fleet",
+    "programs/component-research",
     "programs/system-produce",
     "programs/system-build",
+    "programs/system-research",
     "programs/system-launch",
     "programs/system-shipyard",
-    "programs/system-attack",
     "programs/system-session",
     "programs/system-initialize",
     "programs/system-registry",
@@ -25,4 +26,3 @@ lto = "fat"
 codegen-units = 1
 opt-level = "z"
 strip = true
-

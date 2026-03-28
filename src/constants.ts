@@ -5,12 +5,13 @@ export const WORLD_PROGRAM_ID       = new PublicKey("WorLD15A7CrDwLcLy4fRqtaTb9f
 export const COMPONENT_PLANET_ID    = new PublicKey("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6");
 export const COMPONENT_RESOURCES_ID = new PublicKey("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss");
 export const COMPONENT_FLEET_ID     = new PublicKey("5UuCSuNqVXwCd7qPFQXj8Kp7DAqbB5ZuHFLZZ32paPLD");
+export const COMPONENT_RESEARCH_ID  = new PublicKey("9YgNLY8u8quhB6nQAj6j4fZh2fWJkM1f5M2wLg2V6P6Y");
 export const SYSTEM_INITIALIZE_ID   = new PublicKey("BvTJfpb1KMtBiKQhcNVvHJnKZAvoRALrm4GYQ2Uz36TX");
 export const SYSTEM_PRODUCE_ID      = new PublicKey("EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH");
 export const SYSTEM_BUILD_ID        = new PublicKey("kk7e2mNXHaU3VVtmtzLCZGYP88MDL7EbkFbb9sySfiV");
+export const SYSTEM_RESEARCH_ID     = new PublicKey("4zQaUmY8q4wM9G6vAkQTySbb7NVa8RzQQEtvavB8SshS");
 export const SYSTEM_LAUNCH_ID       = new PublicKey("9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT");
 export const SYSTEM_SHIPYARD_ID     = new PublicKey("FTav8UK4RKawqyGWRakZhe1zhYV7PUJgPwHK7UnEqnN9");
-export const SYSTEM_ATTACK_ID       = new PublicKey("8qbBLEdrN6qC1fFJQLM7a6Jqf2xfoDNfSmTQopMELSGm");
 
 // ── Ephemeral Rollup (replace with your deployed system-session program ID) ───
 // After deploying system-session: `anchor deploy --program-name system-session`
