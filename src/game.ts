@@ -10,6 +10,7 @@ import {
   LAMPORTS_PER_SOL,
   AccountMeta,
 } from "@solana/web3.js";
+import { createHash } from "crypto";
 import { AnchorProvider, setProvider } from "@coral-xyz/anchor";
 import { anchor as BoltAnchor, AddEntity, InitializeComponent, ApplySystem, createDelegateInstruction, createUndelegateInstruction } from "@magicblock-labs/bolt-sdk";
 export const ER_DIRECT_RPC = "https://devnet.magicblock.app";
