@@ -10,6 +10,7 @@ import {
   LAMPORTS_PER_SOL,
   AccountMeta,
 } from "@solana/web3.js";
+import { createHash } from "crypto";
 import { AnchorProvider, setProvider } from "@coral-xyz/anchor";
 import { anchor as BoltAnchor, AddEntity, InitializeComponent, ApplySystem, createDelegateInstruction, createUndelegateInstruction } from "@magicblock-labs/bolt-sdk";
 export const ER_DIRECT_RPC = "https://devnet.magicblock.app";
@@ -330,7 +331,7 @@ export class GameClient {
       fleetPda, resourcesPda, researchPda,
     ]);
 
-    if (!fleetAccount || !resourcesAccount) {
+    if (!fleetAccount || !resourcesAccount || !researchAccount) {
       console.error("[LOOKUP] Missing fleet or resources — trying devnet fallback");
       const [fa2, ra2, rs2] = await this.connection.getMultipleAccountsInfo([fleetPda, resourcesPda, researchPda]);
       if (!fa2 || !ra2) {
@@ -644,7 +645,7 @@ export class GameClient {
     const [pAcc, rAcc, fAcc, rsAcc] = await this.connection.getMultipleAccountsInfo([
       planetPda, resourcesPda, fleetPda, researchPda,
     ]);
-    if (!pAcc || !rAcc || !fAcc) throw new Error("Cannot start session: one or more component accounts missing");
+    if (!pAcc || !rAcc || !fAcc || !rsAcc) throw new Error("Cannot start session: one or more component accounts missing");
 
     const alreadyDelegated = pAcc.owner.equals(DELEGATION_PROGRAM_ID);
     if (alreadyDelegated) {
