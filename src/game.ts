@@ -448,12 +448,12 @@ export class GameClient {
       console.log("[2] Legacy components confirmed:", fallbackSig);
     }
 
-    const args = Buffer.alloc(65, 0);
+    const args = Buffer.alloc(useResearchComponent ? 65 : 64, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
     const nameBytes = Buffer.from(planetName.slice(0, 19), "utf8");
     nameBytes.copy(args, 13);
     entityPda.toBuffer().copy(args, 32);
-    args.writeUInt8(0, 64);
+    if (useResearchComponent) args.writeUInt8(0, 64);
 
     const { transaction: applyTx } = await ApplySystem({
       authority: payer,
