@@ -408,45 +408,58 @@ export class GameClient {
     const entityPda = addEntityResult.entityPda;
     console.log("[1] Entity PDA:", entityPda.toBase58());
 
-    const [planetInit, resourcesInit, fleetInit, researchInit] = await Promise.all([
-      InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentPlanet    }),
-      InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentResources }),
-      InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentFleet     }),
-      InitializeComponent({ payer, entity: entityPda, componentId: PROGRAM_IDS.componentResearch  }),
-    ]);
+    const planetInit = await InitializeComponent({
+      payer,
+      entity: entityPda,
+      componentId: PROGRAM_IDS.componentPlanet,
+    });
+    const resourcesInit = await InitializeComponent({
+      payer,
+      entity: entityPda,
+      componentId: PROGRAM_IDS.componentResources,
+    });
+    const fleetInit = await InitializeComponent({
+      payer,
+      entity: entityPda,
+      componentId: PROGRAM_IDS.componentFleet,
+    });
+    const researchInit = await InitializeComponent({
+      payer,
+      entity: entityPda,
+      componentId: PROGRAM_IDS.componentResearch,
+    });
 
     const planetPda    = planetInit.componentPda;
     const resourcesPda = resourcesInit.componentPda;
     const fleetPda     = fleetInit.componentPda;
-    const researchPda  = researchInit.componentPda;
+    const researchPda  = deriveComponentPda(entityPda, PROGRAM_IDS.componentResearch);
 
-    let useResearchComponent = true;
-    try {
-      const initTx = new Transaction().add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
-        planetInit.transaction.instructions[0],
-        resourcesInit.transaction.instructions[0],
-        fleetInit.transaction.instructions[0],
-        researchInit.transaction.instructions[0],
-      );
-      const initSig = await this.provider.sendAndConfirm(initTx, []);
-      console.log("[2] Components confirmed:", initSig);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      if (!msg.includes("Unsupported program id")) throw e;
-      useResearchComponent = false;
-      console.warn("[INIT] Research component not registered in World yet; falling back to legacy 3-component init.");
-      const fallbackTx = new Transaction().add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
-        planetInit.transaction.instructions[0],
-        resourcesInit.transaction.instructions[0],
-        fleetInit.transaction.instructions[0],
-      );
-      const fallbackSig = await this.provider.sendAndConfirm(fallbackTx, []);
-      console.log("[2] Legacy components confirmed:", fallbackSig);
-    }
+    const sendComponentInit = async (label: string, ix: TransactionInstruction) => {
+      try {
+        const tx = new Transaction().add(
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
+          ix,
+        );
+        const sig = await this.provider.sendAndConfirm(tx, []);
+        console.log(`[2:${label}] component initialized:`, sig);
+      } catch (e: any) {
+        const logs = typeof e?.getLogs === "function" ? await e.getLogs(this.connection) : undefined;
+        const msg = String(e?.message ?? e);
+        console.error(`[2:${label}] initialization failed`, { msg, logs });
+        if (label === "research") {
+          throw new Error(
+            `Research component initialization failed. Ensure component-research is deployed and approved in the World registry. ${msg}`
+          );
+        }
+        throw e;
+      }
+    };
+
+    await sendComponentInit("planet", planetInit.transaction.instructions[0]);
+    await sendComponentInit("research", researchInit.transaction.instructions[0]);
+    await sendComponentInit("fleet", fleetInit.transaction.instructions[0]);
+    await sendComponentInit("resources", resourcesInit.transaction.instructions[0]);
 
     const args = Buffer.alloc(useResearchComponent ? 65 : 64, 0);
     args.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 0);
