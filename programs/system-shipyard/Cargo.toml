@@ -20,3 +20,5 @@ idl-build = ["bolt-lang/idl-build"]
 bolt-lang           = { workspace = true }
 component-fleet     = { path = "../component-fleet",     features = ["cpi", "no-entrypoint"] }
 component-resources = { path = "../component-resources", features = ["cpi", "no-entrypoint"] }
+component-research  = { path = "../component-research",  features = ["cpi", "no-entrypoint"] }
+
