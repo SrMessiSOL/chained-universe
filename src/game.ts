@@ -203,8 +203,15 @@ function patchApplyArgs(ix: TransactionInstruction, rawArgs: Buffer): Transactio
   });
 }
 
+const IX_DISCRIMINATORS: Record<string, number[]> = {
+  init_wallet_meta: [85, 51, 246, 106, 67, 236, 28, 180],
+  register_planet: [213, 91, 78, 118, 207, 133, 98, 238],
+};
+
 function ixDiscriminator(name: string): Buffer {
-  return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+  const bytes = IX_DISCRIMINATORS[name];
+  if (!bytes) throw new Error(`Missing instruction discriminator for ${name}`);
+  return Buffer.from(bytes);
 }
 
 // ─── Game client ──────────────────────────────────────────────────────────────
