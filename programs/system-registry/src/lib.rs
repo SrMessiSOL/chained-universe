@@ -2,114 +2,137 @@ use anchor_lang::prelude::*;
 
 declare_id!("N1K6B3oiseLvLrvXELjWPdPAuhPw8MjFo3oepnHd5d3");
 
-// ── Player Registry ───────────────────────────────────────────────────────────
-//
-// A simple non-component, non-delegated Anchor program that stores a permanent
-// mapping from wallet pubkey → (entity_pda, planet_pda).
-//
-// Key properties:
-//   - PDA seeds: ["registry", wallet] — deterministic, derivable from any device
-//   - Never touched by the BOLT delegation system
-//   - Always owned by this program on Solana devnet
-//   - Queryable by any client with just the wallet pubkey
-//   - Written once during world initialization, never needs updating
-//
-// This solves the cross-device problem: a player who starts an ER session on
-// one device can reconnect from any device by deriving the registry PDA from
-// their wallet and fetching it directly — no getProgramAccounts needed.
-
 #[program]
 pub mod system_registry {
     use super::*;
 
-    /// Create the registry entry for a player's entity and planet PDAs.
-    /// Called once after system_initialize confirms.
-    pub fn register(
-        ctx: Context<Register>,
-        entity_pda: Pubkey,
-        planet_pda: Pubkey,
-    ) -> Result<()> {
-        let registry        = &mut ctx.accounts.registry;
-        registry.wallet     = ctx.accounts.wallet.key();
-        registry.entity_pda = entity_pda;
-        registry.planet_pda = planet_pda;
-        registry.created_at = Clock::get()?.unix_timestamp;
-        msg!(
-            "Registry: wallet={} entity={} planet={}",
-            registry.wallet,
-            registry.entity_pda,
-            registry.planet_pda,
-        );
+    pub fn init_wallet_meta(ctx: Context<InitWalletMeta>) -> Result<()> {
+        let meta = &mut ctx.accounts.wallet_meta;
+        meta.wallet = ctx.accounts.wallet.key();
+        meta.planet_count = 0;
         Ok(())
     }
 
-    /// Update an existing registry entry (in case of planet re-initialization).
-    /// Requires the same wallet — PDA constraint enforces ownership.
-    pub fn update(
-        ctx: Context<Update>,
+    pub fn register_planet(
+        ctx: Context<RegisterPlanet>,
         entity_pda: Pubkey,
         planet_pda: Pubkey,
+        galaxy: u16,
+        system: u16,
+        position: u8,
     ) -> Result<()> {
-        let registry        = &mut ctx.accounts.registry;
-        registry.entity_pda = entity_pda;
-        registry.planet_pda = planet_pda;
-        msg!(
-            "Registry updated: wallet={} entity={} planet={}",
-            registry.wallet,
-            registry.entity_pda,
-            registry.planet_pda,
-        );
+        let index = ctx.accounts.wallet_meta.planet_count;
+        require!(index == ctx.accounts.registry.planet_index, RegistryError::InvalidIndex);
+
+        let wallet = ctx.accounts.wallet.key();
+
+        ctx.accounts.registry.wallet = wallet;
+        ctx.accounts.registry.planet_index = index;
+        ctx.accounts.registry.entity_pda = entity_pda;
+        ctx.accounts.registry.planet_pda = planet_pda;
+        ctx.accounts.registry.created_at = Clock::get()?.unix_timestamp;
+
+        ctx.accounts.coord.galaxy = galaxy;
+        ctx.accounts.coord.system = system;
+        ctx.accounts.coord.position = position;
+        ctx.accounts.coord.owner_wallet = wallet;
+        ctx.accounts.coord.entity_pda = entity_pda;
+        ctx.accounts.coord.planet_pda = planet_pda;
+
+        ctx.accounts.wallet_meta.planet_count = ctx.accounts.wallet_meta.planet_count.saturating_add(1);
+
         Ok(())
     }
 }
 
 #[derive(Accounts)]
-pub struct Register<'info> {
-    /// The player wallet — pays rent and signs.
+pub struct InitWalletMeta<'info> {
     #[account(mut)]
     pub wallet: Signer<'info>,
-
-    /// The registry PDA for this wallet.
-    /// Seeds: ["registry", wallet.key()]
-    /// Use `init` (not init_if_needed) — call `update` for subsequent changes.
     #[account(
         init,
-        payer  = wallet,
-        space  = PlayerRegistry::SIZE,
-        seeds  = [b"registry", wallet.key().as_ref()],
+        payer = wallet,
+        space = WalletMeta::SIZE,
+        seeds = [b"wallet_meta", wallet.key().as_ref()],
         bump,
     )]
-    pub registry: Account<'info, PlayerRegistry>,
-
+    pub wallet_meta: Account<'info, WalletMeta>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct Update<'info> {
-    /// Must be the original wallet — PDA seed constraint enforces this.
+#[instruction(entity_pda: Pubkey, planet_pda: Pubkey, galaxy: u16, system: u16, position: u8)]
+pub struct RegisterPlanet<'info> {
+    #[account(mut)]
     pub wallet: Signer<'info>,
 
     #[account(
         mut,
-        seeds  = [b"registry", wallet.key().as_ref()],
+        seeds = [b"wallet_meta", wallet.key().as_ref()],
         bump,
     )]
-    pub registry: Account<'info, PlayerRegistry>,
+    pub wallet_meta: Account<'info, WalletMeta>,
+
+    #[account(
+        init,
+        payer = wallet,
+        space = PlanetRegistryEntry::SIZE,
+        seeds = [b"registry", wallet.key().as_ref(), &[wallet_meta.planet_count]],
+        bump,
+    )]
+    pub registry: Account<'info, PlanetRegistryEntry>,
+
+    #[account(
+        init,
+        payer = wallet,
+        space = CoordinateRegistry::SIZE,
+        seeds = [b"coord".as_ref(), galaxy.to_le_bytes().as_ref(), system.to_le_bytes().as_ref(), [position].as_ref()],
+        bump,
+    )]
+    pub coord: Account<'info, CoordinateRegistry>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[account]
-pub struct PlayerRegistry {
-    /// The player wallet pubkey
-    pub wallet:     Pubkey, // 32
-    /// The BOLT entity PDA
-    pub entity_pda: Pubkey, // 32
-    /// The component-planet PDA
-    pub planet_pda: Pubkey, // 32
-    /// Unix timestamp of registration
-    pub created_at: i64,    // 8
+pub struct WalletMeta {
+    pub wallet: Pubkey,
+    pub planet_count: u8,
 }
 
-impl PlayerRegistry {
-    // 8 discriminator + 32 + 32 + 32 + 8
-    pub const SIZE: usize = 8 + 32 + 32 + 32 + 8;
+impl WalletMeta {
+    pub const SIZE: usize = 8 + 32 + 1;
+}
+
+#[account]
+pub struct PlanetRegistryEntry {
+    pub wallet: Pubkey,
+    pub planet_index: u8,
+    pub entity_pda: Pubkey,
+    pub planet_pda: Pubkey,
+    pub created_at: i64,
+}
+
+impl PlanetRegistryEntry {
+    pub const SIZE: usize = 8 + 32 + 1 + 32 + 32 + 8;
+}
+
+#[account]
+pub struct CoordinateRegistry {
+    pub galaxy: u16,
+    pub system: u16,
+    pub position: u8,
+    pub owner_wallet: Pubkey,
+    pub entity_pda: Pubkey,
+    pub planet_pda: Pubkey,
+}
+
+impl CoordinateRegistry {
+    pub const SIZE: usize = 8 + 2 + 2 + 1 + 32 + 32 + 32;
+}
+
+#[error_code]
+pub enum RegistryError {
+    #[msg("Invalid registry index")]
+    InvalidIndex,
 }

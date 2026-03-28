@@ -1480,6 +1480,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "component-research"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+]
+
+[[package]]
 name = "component-resources"
 version = "0.1.0"
 dependencies = [
@@ -5978,15 +5985,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "system-attack"
-version = "0.1.0"
-dependencies = [
- "bolt-lang",
- "component-fleet",
- "component-resources",
-]
-
-[[package]]
 name = "system-build"
 version = "0.1.0"
 dependencies = [
@@ -6023,6 +6021,7 @@ dependencies = [
  "bolt-lang",
  "component-fleet",
  "component-planet",
+ "component-research",
  "component-resources",
 ]
 
@@ -6051,6 +6050,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "system-research"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+ "component-planet",
+ "component-research",
+ "component-resources",
+]
+
+[[package]]
 name = "system-session"
 version = "0.1.0"
 dependencies = [
@@ -6069,6 +6078,7 @@ version = "0.1.0"
 dependencies = [
  "bolt-lang",
  "component-fleet",
+ "component-research",
  "component-resources",
 ]
 
