@@ -1,7 +1,7 @@
 use bolt_lang::*;
 use component_resources::Resources;
 
-declare_id!("EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH");
+declare_id!("DNNJg4A1yirXgUN5cdJ4ozuG8zJVkmxB2AsWvTqVsbk4");
 
 /// ─────────────────────────────────────────────────────────────────────────
 /// Produce System

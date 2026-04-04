@@ -1,6 +1,6 @@
 use bolt_lang::*;
 
-declare_id!("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss");
+declare_id!("66QnMWuqE9B8vE9iSP1qWMk8R2yybci4NNJtdL3xiGjW");
 
 /// Resources Component
 ///

@@ -1472,6 +1472,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "component-investigation"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+]
+
+[[package]]
 name = "component-planet"
 version = "0.1.0"
 dependencies = [
@@ -5978,15 +5985,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "system-attack"
-version = "0.1.0"
-dependencies = [
- "bolt-lang",
- "component-fleet",
- "component-resources",
-]
-
-[[package]]
 name = "system-build"
 version = "0.1.0"
 dependencies = [
@@ -6022,6 +6020,18 @@ version = "0.1.0"
 dependencies = [
  "bolt-lang",
  "component-fleet",
+ "component-investigation",
+ "component-planet",
+ "component-resources",
+]
+
+[[package]]
+name = "system-initialize-new-colony"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+ "component-fleet",
+ "component-investigation",
  "component-planet",
  "component-resources",
 ]
@@ -6033,6 +6043,7 @@ dependencies = [
  "bolt-lang",
  "component-fleet",
  "component-resources",
+ "system-registry",
 ]
 
 [[package]]
@@ -6048,6 +6059,38 @@ name = "system-registry"
 version = "0.1.0"
 dependencies = [
  "anchor-lang 0.29.0",
+]
+
+[[package]]
+name = "system-research"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+ "component-investigation",
+ "component-planet",
+ "component-resources",
+]
+
+[[package]]
+name = "system-resolve-colonize"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+ "component-fleet",
+ "component-investigation",
+ "component-planet",
+ "component-resources",
+ "system-registry",
+]
+
+[[package]]
+name = "system-resolve-transport"
+version = "0.1.0"
+dependencies = [
+ "bolt-lang",
+ "component-fleet",
+ "component-planet",
+ "component-resources",
 ]
 
 [[package]]
@@ -6069,6 +6112,7 @@ version = "0.1.0"
 dependencies = [
  "bolt-lang",
  "component-fleet",
+ "component-investigation",
  "component-resources",
 ]
 

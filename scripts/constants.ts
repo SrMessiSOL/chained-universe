@@ -5,16 +5,18 @@ export const WORLD_PROGRAM_ID       = new PublicKey("WorLD15A7CrDwLcLy4fRqtaTb9f
 export const COMPONENT_PLANET_ID    = new PublicKey("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6");
 export const COMPONENT_RESOURCES_ID = new PublicKey("CP6KoShdHvgZbGubYLct1EcQLmngZ1nsWmaKQhbJRtss");
 export const COMPONENT_FLEET_ID     = new PublicKey("5UuCSuNqVXwCd7qPFQXj8Kp7DAqbB5ZuHFLZZ32paPLD");
+export const COMPONENT_RESEARCH_ID  = new PublicKey("71Mk6jkgm6SuYBm4GasMHspcNL5vWJ3jhckjtZuYQ9Bu");
 export const SYSTEM_INITIALIZE_ID   = new PublicKey("HNiJvBSjSXm5WPmPd2TG8LD1q8sXqSF46qe3YL1vXapC");
 export const SYSTEM_PRODUCE_ID      = new PublicKey("EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH");
 export const SYSTEM_BUILD_ID        = new PublicKey("kk7e2mNXHaU3VVtmtzLCZGYP88MDL7EbkFbb9sySfiV");
+export const SYSTEM_RESEARCH_ID     = new PublicKey("DCu9u4iWQQgToW5zCE8mT6szkJ2qhM49hCMdgxoorg1e");
 export const SYSTEM_LAUNCH_ID       = new PublicKey("9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT");
 export const SYSTEM_SHIPYARD_ID     = new PublicKey("FTav8UK4RKawqyGWRakZhe1zhYV7PUJgPwHK7UnEqnN9");
 export const SYSTEM_ATTACK_ID       = new PublicKey("8qbBLEdrN6qC1fFJQLM7a6Jqf2xfoDNfSmTQopMELSGm");
 
 // Set via .env — the one shared world PDA that all players join
 // Create it once with the seed script: scripts/create-world.ts
-export const SHARED_WORLD_PDA_STR =  new PublicKey("GLHxWEFXEiHdhNopVAGm9dPWM9sisEwN4PDbS7nnWqGL");
+export const SHARED_WORLD_PDA_STR =  new PublicKey("2kGgN2BfqMdwsmdDE5TZdyqe5rCsUg27RFfH2x2i35WR");
 
 // ── Building definitions ──────────────────────────────────────────────────────
 export const BUILDINGS = [

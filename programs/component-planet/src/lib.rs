@@ -1,6 +1,6 @@
 use bolt_lang::*;
 
-declare_id!("4AAQeP54KQy4HSjMsMS9VwVY8mWy4BisdsTwSxen4Df6");
+declare_id!("GSQbXfwxMWkW2bGASsKe4i8WupDPMRCLybZHRPJoXC6P");
 
 /// Planet Component
 ///
@@ -21,6 +21,7 @@ pub struct Planet {
     pub galaxy: u16,
     pub system: u16,
     pub position: u8,
+    pub planet_index: u32,
     pub diameter: u32,
     pub temperature: i16,
     pub max_fields: u16,

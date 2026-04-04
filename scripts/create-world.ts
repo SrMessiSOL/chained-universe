@@ -62,12 +62,15 @@ async function main() {
 
   console.log("\nStep 3: Registering systems with ApproveSystem (no execution)...");
   const systems = [
-    { name: "initialize", id: "6LeL1w61afFuW9CU92B3RDcHEY8GyZUQK2a9GEoSrvTE" },
-    { name: "produce",    id: "EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH" },
-    { name: "build",      id: "kk7e2mNXHaU3VVtmtzLCZGYP88MDL7EbkFbb9sySfiV" },
-    { name: "shipyard",   id: "FTav8UK4RKawqyGWRakZhe1zhYV7PUJgPwHK7UnEqnN9" },
-    { name: "launch",     id: "9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT" },
-    { name: "attack",     id: "8qbBLEdrN6qC1fFJQLM7a6Jqf2xfoDNfSmTQopMELSGm" },
+    { name: "initialize", id: "GHBGdcof2e5tsPe2vP3zJYNxJscojY7J7gdRXCsgdpY9" },
+    { name: "produce",    id: "DNNJg4A1yirXgUN5cdJ4ozuG8zJVkmxB2AsWvTqVsbk4" },
+    { name: "build",      id: "E94HChSfw57Px2BJPKLnoaj17v6NKN7vXnoQGLSpxUve" },
+    { name: "shipyard",   id: "74wxuTRib19TzJyXNaeyPVcsFFFqBq8phtRSSPDsK2q2" },
+    { name: "launch",     id: "BVn9NZ51LqhbDowqhaJvxmXK6VGsP1k3dLtJEL8Fjmxv" },
+    { name: "research",   id: "CXwXVUeovhbpXGWpHk56SgrnH2DwoqoTSErgtrJghK5Z" },
+    { name: "system_initialize_new_colony",   id: "DapYcTdYUwB7qWhmqMGZU6V1vqS3NEagzt15fnWwfQMC"  },
+    { name: "system_resolve_colonize",   id: "AuYuVgjpX64Fea3zGtUaEHjoewwyWBeT8Srsh8EXFhGL"  },
+    { name: "system_resolve_transport",   id: "DkzcueEX3ca9haAmFoHKsW7JQVFxBfeZJX1VdHSdPnYP"  },
   ];
 
   for (const sys of systems) {

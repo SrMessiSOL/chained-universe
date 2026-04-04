@@ -14,7 +14,7 @@ async function main() {
   console.log("Current authority wallet:", kp.publicKey.toBase58());
 
   // Paste the PDA from the previous creation
-  const worldPda = new PublicKey("JEJfSmLKMVLkm3zaR6xEf81ST3Svi5T93ovCGp5tNQgq"); // <-- CHANGE THIS TO YOUR LATEST PDA
+  const worldPda = new PublicKey("D29EZd2D2rkprxLoFqvfhuU3zednXNsC8kpvsvCXiCKz"); // <-- CHANGE THIS TO YOUR LATEST PDA
 
   try {
     const tx = new Transaction();

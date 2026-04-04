@@ -1,8 +1,8 @@
 use bolt_lang::*;
-use component_fleet::{Fleet, Mission};
+use component_fleet::Fleet;
 use component_resources::Resources;
 
-declare_id!("9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT");
+declare_id!("BVn9NZ51LqhbDowqhaJvxmXK6VGsP1k3dLtJEL8Fjmxv");
 
 fn u32_at(b: &[u8], o: usize) -> u32 {
     u32::from_le_bytes(b[o..o+4].try_into().unwrap_or([0;4]))
@@ -12,6 +12,20 @@ fn u64_at(b: &[u8], o: usize) -> u64 {
 }
 fn i64_at(b: &[u8], o: usize) -> i64 {
     i64::from_le_bytes(b[o..o+8].try_into().unwrap_or([0;8]))
+}
+const TRANSPORT_MISSION: u8 = 2;
+const COLONIZE_MISSION: u8 = 5;
+const BASE_ARGS_LEN: usize = 94;
+const TARGET_COORDS_OFFSET: usize = 94;
+const TARGET_COORDS_LEN: usize = 5;
+const COLONY_NAME_LEN: usize = 32;
+
+fn colony_name_at(b: &[u8], o: usize) -> [u8; COLONY_NAME_LEN] {
+    let mut name = [0u8; COLONY_NAME_LEN];
+    if b.len() >= o + COLONY_NAME_LEN {
+        name.copy_from_slice(&b[o..o + COLONY_NAME_LEN]);
+    }
+    name
 }
 
 // FIX: Resources has no .settle() method — inline the logic as a free function.
@@ -44,7 +58,7 @@ fn settle_resources(res: &mut Resources, now: i64) {
 pub mod system_launch {
     pub fn execute(ctx: Context<Components>, args: Vec<u8>) -> Result<Components> {
 
-        require!(args.len() >= 94, LaunchError::InvalidArgs);
+        require!(args.len() >= BASE_ARGS_LEN, LaunchError::InvalidArgs);
 
         let mission_type   = args[0];
         let lf  = u32_at(&args, 1);
@@ -66,21 +80,50 @@ pub mod system_launch {
         let speed_factor    = args[77].max(10).min(100);
         let now             = i64_at(&args, 78);
         let flight_seconds  = i64_at(&args, 86);
+        require!(
+            args.len() >= TARGET_COORDS_OFFSET + TARGET_COORDS_LEN,
+            LaunchError::MissingTarget
+        );
+        let target_galaxy = u16::from_le_bytes(
+            args[TARGET_COORDS_OFFSET..TARGET_COORDS_OFFSET + 2]
+                .try_into()
+                .unwrap_or([0; 2]),
+        );
+        let target_system = u16::from_le_bytes(
+            args[TARGET_COORDS_OFFSET + 2..TARGET_COORDS_OFFSET + 4]
+                .try_into()
+                .unwrap_or([0; 2]),
+        );
+        let target_position = args[TARGET_COORDS_OFFSET + 4];
+        require!((1..=9).contains(&target_galaxy), LaunchError::InvalidTarget);
+        require!((1..=499).contains(&target_system), LaunchError::InvalidTarget);
+        require!((1..=15).contains(&target_position), LaunchError::InvalidTarget);
 
-        require!(mission_type >= 1 && mission_type <= 6, LaunchError::InvalidMission);
+        let colony_name = match mission_type {
+            TRANSPORT_MISSION => [0u8; COLONY_NAME_LEN],
+            COLONIZE_MISSION => {
+                require!(
+                    args.len() >= TARGET_COORDS_OFFSET + TARGET_COORDS_LEN + COLONY_NAME_LEN,
+                    LaunchError::MissingColonyName
+                );
+                colony_name_at(&args, TARGET_COORDS_OFFSET + TARGET_COORDS_LEN)
+            }
+            _ => [0u8; COLONY_NAME_LEN],
+        };
+        let return_ts = match mission_type {
+            TRANSPORT_MISSION => now.saturating_add(flight_seconds.saturating_mul(2)),
+            COLONIZE_MISSION => 0,
+            _ => 0,
+        };
+
+        require!(mission_type == TRANSPORT_MISSION || mission_type == COLONIZE_MISSION, LaunchError::InvalidMission);
         require!(flight_seconds > 0, LaunchError::InvalidArgs);
         require!(lf+hf+cr+bs+bc+bm+ds+de+sc+lc+rec+ep+col > 0, LaunchError::EmptyFleet);
 
         // FIX: was ctx.accounts.resources.settle(now) — method doesn't exist.
         settle_resources(&mut ctx.accounts.resources, now);
 
-        let slot = {
-            let mut found = None;
-            for (i, m) in ctx.accounts.fleet.missions.iter().enumerate() {
-                if m.mission_type == 0 { found = Some(i); break; }
-            }
-            found.ok_or(LaunchError::NoSlot)?
-        };
+        let slot = ctx.accounts.fleet.free_slot().ok_or(LaunchError::NoSlot)?;
 
         let f = &ctx.accounts.fleet;
         require!(f.light_fighter   >= lf,  LaunchError::InsufficientShips);
@@ -124,18 +167,20 @@ pub mod system_launch {
         f.small_cargo     -= sc; f.large_cargo   -= lc;
         f.recycler        -= rec; f.espionage_probe -= ep;
         f.colony_ship     -= col;
-
-        f.missions[slot] = Mission {
+        f.set_mission(
+            slot,
             mission_type,
-            destination: Pubkey::default(),
-            depart_ts: now, arrive_ts: now + flight_seconds, return_ts: 0,
-            s_light_fighter: lf, s_heavy_fighter: hf, s_cruiser: cr,
-            s_battleship: bs, s_battlecruiser: bc, s_bomber: bm,
-            s_destroyer: ds, s_deathstar: de, s_small_cargo: sc,
-            s_large_cargo: lc, s_recycler: rec, s_espionage_probe: ep,
-            s_colony_ship: col, cargo_metal, cargo_crystal, cargo_deuterium,
-            applied: false,
-        };
+            target_galaxy,
+            target_system,
+            target_position,
+            colony_name,
+            now,
+            now.saturating_add(flight_seconds),
+            return_ts,
+            lf, hf, cr, bs, bc, bm, ds, de,
+            sc, lc, rec, ep, col,
+            cargo_metal, cargo_crystal, cargo_deuterium,
+        );
         f.active_missions = f.active_missions.saturating_add(1);
 
         Ok(ctx.accounts)
@@ -152,6 +197,9 @@ pub mod system_launch {
 pub enum LaunchError {
     #[msg("Invalid args")]            InvalidArgs,
     #[msg("Invalid mission")]         InvalidMission,
+    #[msg("Mission target is required")] MissingTarget,
+    #[msg("Mission target is invalid")] InvalidTarget,
+    #[msg("Colonize missions require a colony name")] MissingColonyName,
     #[msg("Empty fleet")]             EmptyFleet,
     #[msg("No fleet slot")]           NoSlot,
     #[msg("Insufficient ships")]      InsufficientShips,

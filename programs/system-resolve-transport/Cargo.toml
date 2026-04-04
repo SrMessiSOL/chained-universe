@@ -1,11 +1,11 @@
 [package]
-name = "system-attack"
+name = "system-resolve-transport"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "system_attack"
+name = "system_resolve_transport"
 
 [features]
 default = []
@@ -17,6 +17,7 @@ no-log-ix-name = []
 idl-build = ["bolt-lang/idl-build"]
 
 [dependencies]
-bolt-lang           = { workspace = true }
-component-fleet     = { path = "../component-fleet",     features = ["cpi", "no-entrypoint"] }
+bolt-lang = { workspace = true }
+component-fleet = { path = "../component-fleet", features = ["cpi", "no-entrypoint"] }
+component-planet = { path = "../component-planet", features = ["cpi", "no-entrypoint"] }
 component-resources = { path = "../component-resources", features = ["cpi", "no-entrypoint"] }

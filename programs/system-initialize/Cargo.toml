@@ -21,3 +21,4 @@ bolt-lang           = { workspace = true }
 component-planet    = { path = "../component-planet",    features = ["cpi", "no-entrypoint"] }
 component-resources = { path = "../component-resources", features = ["cpi", "no-entrypoint"] }
 component-fleet     = { path = "../component-fleet",     features = ["cpi", "no-entrypoint"] }
+component-investigation  = { path = "../component-investigation",  features = ["cpi", "no-entrypoint"] }

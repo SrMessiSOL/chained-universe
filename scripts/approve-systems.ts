@@ -8,7 +8,7 @@ import * as path from "path";
 
 async function main() {
   // ── ALWAYS pass the world PDA explicitly — never derive or create ──
-  const WORLD_PDA = "2kGgN2BfqMdwsmdDE5TZdyqe5rCsUg27RFfH2x2i35WR";
+  const WORLD_PDA = "5KY9KS6iKAwSDq3LbErP7LEPLdTPhqBLJ5VLG1555X8N";
   if (!WORLD_PDA) {
     console.error("Usage: WORLD_PDA=<address> npx ts-node scripts/approve-systems.ts");
     process.exit(1);
@@ -36,14 +36,15 @@ async function main() {
   console.log("World account confirmed on-chain ✓\n");
 
   const systems = [
-    { name: "system_initialize", id: "BvTJfpb1KMtBiKQhcNVvHJnKZAvoRALrm4GYQ2Uz36TX" },
-    { name: "system_produce",    id: "EkNaTMh1N29W6PCXDGnvh7mVzcrA1pMS3uz2xKWRUZRH" },
-    { name: "system_build",      id: "kk7e2mNXHaU3VVtmtzLCZGYP88MDL7EbkFbb9sySfiV"  },
-    { name: "system_shipyard",   id: "FTav8UK4RKawqyGWRakZhe1zhYV7PUJgPwHK7UnEqnN9"  },
-    { name: "system_launch",     id: "9aHGFS8VAfbEYYCkEGQBBuTKApkD5aiHotH77kMgB5bT"  },
-    { name: "system_attack",     id: "8qbBLEdrN6qC1fFJQLM7a6Jqf2xfoDNfSmTQopMELSGm"  },
-    { name: "system_session",    id: "9Zt7h1n2sHjLh3mLZy5c8XoVqj6iKZt7eGzqjYpXoV4a"  },
-    { name: "system_registry",   id: "N1K6B3oiseLvLrvXELjWPdPAuhPw8MjFo3oepnHd5d3"  },
+    { name: "initialize", id: "GHBGdcof2e5tsPe2vP3zJYNxJscojY7J7gdRXCsgdpY9" },
+    { name: "produce",    id: "DNNJg4A1yirXgUN5cdJ4ozuG8zJVkmxB2AsWvTqVsbk4" },
+    { name: "build",      id: "E94HChSfw57Px2BJPKLnoaj17v6NKN7vXnoQGLSpxUve" },
+    { name: "shipyard",   id: "74wxuTRib19TzJyXNaeyPVcsFFFqBq8phtRSSPDsK2q2" },
+    { name: "launch",     id: "BVn9NZ51LqhbDowqhaJvxmXK6VGsP1k3dLtJEL8Fjmxv" },
+    { name: "research",   id: "CXwXVUeovhbpXGWpHk56SgrnH2DwoqoTSErgtrJghK5Z" },
+    { name: "system_initialize_new_colony",   id: "DapYcTdYUwB7qWhmqMGZU6V1vqS3NEagzt15fnWwfQMC"  },
+    { name: "system_resolve_colonize",   id: "AuYuVgjpX64Fea3zGtUaEHjoewwyWBeT8Srsh8EXFhGL"  },
+    { name: "system_resolve_transport",   id: "DkzcueEX3ca9haAmFoHKsW7JQVFxBfeZJX1VdHSdPnYP"  },
   ];
 
   for (const sys of systems) {
