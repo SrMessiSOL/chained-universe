@@ -1,26 +1,11 @@
 
 [workspace]
 members = [
-    "programs/component-planet",
-    "programs/component-resources",
-    "programs/component-fleet",
-    "programs/component-investigation",
-    "programs/system-produce",
-    "programs/system-build",
-    "programs/system-research",
-    "programs/system-launch",
-    "programs/system-resolve-transport",
-    "programs/system-resolve-colonize",
-    "programs/system-initialize-new-colony",
-    "programs/system-shipyard",
-    "programs/system-session",
-    "programs/system-initialize",
-    "programs/system-registry",
+    "programs/game-state",
 ]
 resolver = "2"
 
 [workspace.dependencies]
-bolt-lang = { version = "=0.2.2" }
 anchor-lang = { version = "0.30.1" }
 
 [profile.release]
