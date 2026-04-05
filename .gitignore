@@ -2,6 +2,7 @@
 .bolt
 .DS_Store
 target
+programs/**/target
 **/*.rs.bk
 node_modules
 test-ledger
