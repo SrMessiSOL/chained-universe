@@ -1,7 +1,4 @@
 use anchor_lang::prelude::*;
-use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
-use ephemeral_rollups_sdk::cpi::DelegateConfig;
-use ephemeral_rollups_sdk::ephem::{commit_accounts, commit_and_undelegate_accounts};
 
 declare_id!("7yKyjQ7m8tSqvqYnV65aVV9Jwdee7KqyELeDXf6Fxkt4");
 
@@ -10,13 +7,11 @@ pub const MAX_MISSION_COLONY_NAME_LEN: usize = 32;
 pub const MAX_MISSIONS: usize = 4;
 pub const MISSION_TRANSPORT: u8 = 2;
 pub const MISSION_COLONIZE: u8 = 5;
-
+pub const PLANET_COORDS_SPACE: usize = 8 + PlanetCoordinates::INIT_SPACE;
 pub const PLAYER_PROFILE_SPACE: usize = 8 + PlayerProfile::INIT_SPACE;
 pub const PLANET_STATE_SPACE: usize = 8 + PlanetState::INIT_SPACE;
-pub const AUTHORIZED_BURNER_SPACE: usize = 8 + AuthorizedBurner::INIT_SPACE;
-pub const BURNER_BACKUP_SPACE: usize = 8 + BurnerBackup::INIT_SPACE;
-
-pub const SESSION_PROGRAM_ID: Pubkey = pubkey!("KeyspM2ssCJbqUhQ4k7sveSiY4WjnYsrXkC8oDbwde5");
+pub const AUTHORIZED_VAULT_SPACE: usize = 8 + AuthorizedVault::INIT_SPACE;
+pub const VAULT_BACKUP_SPACE: usize = 8 + VaultBackup::INIT_SPACE;
 
 // =============================================
 // Helper Functions
@@ -40,9 +35,7 @@ fn copy_name<const N: usize>(value: &str, fallback: &str) -> [u8; N] {
 
 fn pow15(n: u64) -> u64 {
     let mut r: u64 = 1_000;
-    for _ in 0..n {
-        r = r * 3 / 2;
-    }
+    for _ in 0..n { r = r * 3 / 2; }
     r
 }
 
@@ -196,6 +189,24 @@ fn recalculate_rates(planet: &mut PlanetState) {
     planet.deuterium_cap = store_cap(planet.deuterium_tank);
 }
 
+fn require_active_vault(
+    vault_signer: Pubkey,
+    authorized_vault: &Account<AuthorizedVault>,
+    planet_authority: Pubkey,
+) -> Result<()> {
+    require_keys_eq!(authorized_vault.vault, vault_signer, GameStateError::InvalidVaultAuthorization);
+    require_keys_eq!(authorized_vault.authority, planet_authority, GameStateError::InvalidVaultAuthorization);
+    require!(!authorized_vault.revoked, GameStateError::VaultAuthorizationRevoked);
+
+    if authorized_vault.expires_at > 0 {
+        require!(
+            Clock::get()?.unix_timestamp <= authorized_vault.expires_at,
+            GameStateError::VaultAuthorizationExpired
+        );
+    }
+    Ok(())
+}
+
 fn create_planet_state(
     authority: Pubkey,
     player_profile: &mut Account<PlayerProfile>,
@@ -284,50 +295,6 @@ fn create_planet_state(
     Ok(())
 }
 
-fn require_active_session(
-    session_signer: Pubkey,
-    session_token_info: &AccountInfo,
-    authority: Pubkey,
-) -> Result<()> {
-    require_keys_eq!(*session_token_info.owner, SESSION_PROGRAM_ID, GameStateError::InvalidSession);
-
-    let data = session_token_info.try_borrow_data()?;
-    let mut data_slice: &[u8] = &data;
-    let session_token = SessionToken::try_deserialize(&mut data_slice)?;
-
-    require_keys_eq!(session_token.authority, authority, GameStateError::InvalidSession);
-    require_keys_eq!(session_token.target_program, crate::ID, GameStateError::InvalidSession);
-    require_keys_eq!(session_token.session_signer, session_signer, GameStateError::InvalidSession);
-
-    if session_token.valid_until > 0 {
-        require!(
-            Clock::get()?.unix_timestamp <= session_token.valid_until,
-            GameStateError::SessionExpired
-        );
-    }
-    Ok(())
-}
-
-fn require_active_burner(
-    burner_signer: Pubkey,
-    authorized_burner: &Account<AuthorizedBurner>,
-    planet: Pubkey,
-    authority: Pubkey,
-) -> Result<()> {
-    require_keys_eq!(authorized_burner.burner, burner_signer, GameStateError::InvalidBurnerAuthorization);
-    require_keys_eq!(authorized_burner.authority, authority, GameStateError::InvalidBurnerAuthorization);
-    require_keys_eq!(authorized_burner.planet, planet, GameStateError::InvalidBurnerAuthorization);
-    require!(!authorized_burner.revoked, GameStateError::BurnerAuthorizationRevoked);
-
-    if authorized_burner.expires_at > 0 {
-        require!(
-            Clock::get()?.unix_timestamp <= authorized_burner.expires_at,
-            GameStateError::BurnerAuthorizationExpired
-        );
-    }
-    Ok(())
-}
-
 fn produce_planet(planet: &mut PlanetState, now: i64) -> Result<()> {
     settle_resources(planet, now);
     Ok(())
@@ -354,7 +321,6 @@ fn start_build_planet(planet: &mut PlanetState, building_idx: u8, now: i64) -> R
     planet.build_queue_target = next;
     planet.build_finish_ts = now + dur;
     planet.used_fields = planet.used_fields.saturating_add(1);
-
     Ok(())
 }
 
@@ -416,6 +382,31 @@ fn finish_research_planet(planet: &mut PlanetState, now: i64) -> Result<()> {
     Ok(())
 }
 
+fn distance(
+    from_galaxy: u16,
+    from_system: u16,
+    from_position: u8,
+    to_galaxy: u16,
+    to_system: u16,
+    to_position: u8,
+) -> u64 {
+    if from_galaxy != to_galaxy {
+        return (from_galaxy as i64 - to_galaxy as i64).abs() as u64 * 20_000;
+    }
+
+    if from_system != to_system {
+        return (from_system as i64 - to_system as i64).abs() as u64 * 2_000;
+    }
+
+    return (from_position as i64 - to_position as i64).abs() as u64 * 200 + 1_000;
+}
+
+fn mission_flight_seconds(distance: u64, speed_factor: u8) -> i64 {
+    let sf = speed_factor.clamp(10, 100) as u64;
+    ((distance * 100) / sf).max(1) as i64
+}
+
+
 fn build_ship_planet(planet: &mut PlanetState, ship_type: u8, quantity: u32, now: i64) -> Result<()> {
     require!(quantity > 0, GameStateError::InvalidArgs);
     settle_resources(planet, now);
@@ -446,16 +437,28 @@ fn launch_fleet_planet(planet: &mut PlanetState, params: LaunchFleetParams) -> R
         params.mission_type == MISSION_TRANSPORT || params.mission_type == MISSION_COLONIZE,
         GameStateError::InvalidMission
     );
-    require!(params.flight_seconds > 0, GameStateError::InvalidArgs);
 
-    let total_ships = params.light_fighter + params.heavy_fighter + params.cruiser + params.battleship +
-        params.battlecruiser + params.bomber + params.destroyer + params.deathstar +
-        params.small_cargo + params.large_cargo + params.recycler + params.espionage_probe + params.colony_ship;
+    let total_ships =
+        params.light_fighter
+        + params.heavy_fighter
+        + params.cruiser
+        + params.battleship
+        + params.battlecruiser
+        + params.bomber
+        + params.destroyer
+        + params.deathstar
+        + params.small_cargo
+        + params.large_cargo
+        + params.recycler
+        + params.espionage_probe
+        + params.colony_ship;
 
     require!(total_ships > 0, GameStateError::EmptyFleet);
 
     settle_resources(planet, params.now);
-    let slot = planet.free_mission_slot().ok_or(GameStateError::NoMissionSlot)?;
+    let slot = planet
+        .free_mission_slot()
+        .ok_or(GameStateError::NoMissionSlot)?;
 
     require!(planet.light_fighter >= params.light_fighter, GameStateError::InsufficientShips);
     require!(planet.heavy_fighter >= params.heavy_fighter, GameStateError::InsufficientShips);
@@ -471,26 +474,65 @@ fn launch_fleet_planet(planet: &mut PlanetState, params: LaunchFleetParams) -> R
     require!(planet.espionage_probe >= params.espionage_probe, GameStateError::InsufficientShips);
     require!(planet.colony_ship >= params.colony_ship, GameStateError::InsufficientShips);
 
-    let cap = cargo_capacity(params.small_cargo, params.large_cargo, params.recycler, params.cruiser, params.battleship);
-    require!(params.cargo_metal + params.cargo_crystal + params.cargo_deuterium <= cap, GameStateError::ExceedsCargo);
+    let cap = cargo_capacity(
+        params.small_cargo,
+        params.large_cargo,
+        params.recycler,
+        params.cruiser,
+        params.battleship,
+    );
+    require!(
+        params.cargo_metal + params.cargo_crystal + params.cargo_deuterium <= cap,
+        GameStateError::ExceedsCargo
+    );
 
     require!(planet.metal >= params.cargo_metal, GameStateError::InsufficientResources);
     require!(planet.crystal >= params.cargo_crystal, GameStateError::InsufficientResources);
-    require!(planet.deuterium >= params.cargo_deuterium, GameStateError::InsufficientResources);
+    require!(
+        planet.deuterium >= params.cargo_deuterium,
+        GameStateError::InsufficientResources
+    );
 
     let speed_factor = params.speed_factor.clamp(10, 100);
-    let fuel = launch_fuel_cost(
-        params.light_fighter, params.heavy_fighter, params.cruiser, params.battleship,
-        params.battlecruiser, params.bomber, params.destroyer, params.deathstar,
-        params.small_cargo, params.large_cargo, params.recycler, params.espionage_probe, params.colony_ship,
+
+    let dist = distance(
+        planet.galaxy,
+        planet.system,
+        planet.position,
+        params.target_galaxy,
+        params.target_system,
+        params.target_position,
+    );
+
+    let flight_seconds = mission_flight_seconds(dist, speed_factor);
+    require!(flight_seconds > 0, GameStateError::InvalidArgs);
+
+    // One-way fuel only at launch.
+    let launch_fuel = launch_fuel_cost(
+        params.light_fighter,
+        params.heavy_fighter,
+        params.cruiser,
+        params.battleship,
+        params.battlecruiser,
+        params.bomber,
+        params.destroyer,
+        params.deathstar,
+        params.small_cargo,
+        params.large_cargo,
+        params.recycler,
+        params.espionage_probe,
+        params.colony_ship,
         speed_factor,
     );
 
-    require!(planet.deuterium >= params.cargo_deuterium + fuel, GameStateError::InsufficientDeuterium);
+    require!(
+        planet.deuterium >= params.cargo_deuterium + launch_fuel,
+        GameStateError::InsufficientDeuterium
+    );
 
     planet.metal -= params.cargo_metal;
     planet.crystal -= params.cargo_crystal;
-    planet.deuterium -= params.cargo_deuterium + fuel;
+    planet.deuterium -= params.cargo_deuterium + launch_fuel;
 
     planet.light_fighter -= params.light_fighter;
     planet.heavy_fighter -= params.heavy_fighter;
@@ -506,42 +548,42 @@ fn launch_fleet_planet(planet: &mut PlanetState, params: LaunchFleetParams) -> R
     planet.espionage_probe -= params.espionage_probe;
     planet.colony_ship -= params.colony_ship;
 
+    let arrive_ts = params.now.saturating_add(flight_seconds);
+
     let return_ts = if params.mission_type == MISSION_TRANSPORT {
-        params.now.saturating_add(params.flight_seconds.saturating_mul(2))
+        arrive_ts.saturating_add(flight_seconds)
     } else {
         0
     };
 
-    planet.set_mission(
-        slot,
-        MissionState {
-            mission_type: params.mission_type,
-            target_galaxy: params.target_galaxy,
-            target_system: params.target_system,
-            target_position: params.target_position,
-            colony_name: copy_name::<MAX_MISSION_COLONY_NAME_LEN>(&params.colony_name, ""),
-            depart_ts: params.now,
-            arrive_ts: params.now.saturating_add(params.flight_seconds),
-            return_ts,
-            small_cargo: params.small_cargo,
-            large_cargo: params.large_cargo,
-            light_fighter: params.light_fighter,
-            heavy_fighter: params.heavy_fighter,
-            cruiser: params.cruiser,
-            battleship: params.battleship,
-            battlecruiser: params.battlecruiser,
-            bomber: params.bomber,
-            destroyer: params.destroyer,
-            deathstar: params.deathstar,
-            recycler: params.recycler,
-            espionage_probe: params.espionage_probe,
-            colony_ship: params.colony_ship,
-            cargo_metal: params.cargo_metal,
-            cargo_crystal: params.cargo_crystal,
-            cargo_deuterium: params.cargo_deuterium,
-            applied: false,
-        },
-    );
+    planet.set_mission(slot, MissionState {
+        mission_type: params.mission_type,
+        target_galaxy: params.target_galaxy,
+        target_system: params.target_system,
+        target_position: params.target_position,
+        colony_name: copy_name::<MAX_MISSION_COLONY_NAME_LEN>(&params.colony_name, ""),
+        depart_ts: params.now,
+        arrive_ts,
+        return_ts,
+        small_cargo: params.small_cargo,
+        large_cargo: params.large_cargo,
+        light_fighter: params.light_fighter,
+        heavy_fighter: params.heavy_fighter,
+        cruiser: params.cruiser,
+        battleship: params.battleship,
+        battlecruiser: params.battlecruiser,
+        bomber: params.bomber,
+        destroyer: params.destroyer,
+        deathstar: params.deathstar,
+        recycler: params.recycler,
+        espionage_probe: params.espionage_probe,
+        colony_ship: params.colony_ship,
+        cargo_metal: params.cargo_metal,
+        cargo_crystal: params.cargo_crystal,
+        cargo_deuterium: params.cargo_deuterium,
+        applied: false,
+        speed_factor, // <-- add this field to MissionState
+    });
 
     planet.active_missions = planet.active_missions.saturating_add(1);
     Ok(())
@@ -554,6 +596,7 @@ fn resolve_transport_planets(
     now: i64,
 ) -> Result<()> {
     require!(slot < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+
     let mission = source.mission(slot);
     require!(mission.mission_type == MISSION_TRANSPORT, GameStateError::InvalidMission);
     require!(
@@ -565,11 +608,17 @@ fn resolve_transport_planets(
 
     if !mission.applied {
         require!(now >= mission.arrive_ts, GameStateError::MissionInFlight);
+
+        settle_resources(source, now);
+        settle_resources(destination, now);
+
+        // Always deliver cargo on arrival.
+        destination.metal = destination.metal.saturating_add(mission.cargo_metal);
+        destination.crystal = destination.crystal.saturating_add(mission.cargo_crystal);
+        destination.deuterium = destination.deuterium.saturating_add(mission.cargo_deuterium);
+
         if destination.authority == source.authority {
-            settle_resources(destination, now);
-            destination.metal = destination.metal.saturating_add(mission.cargo_metal);
-            destination.crystal = destination.crystal.saturating_add(mission.cargo_crystal);
-            destination.deuterium = destination.deuterium.saturating_add(mission.cargo_deuterium);
+            // Same owner: ships stay at destination and mission ends here.
             destination.small_cargo = destination.small_cargo.saturating_add(mission.small_cargo);
             destination.large_cargo = destination.large_cargo.saturating_add(mission.large_cargo);
             destination.light_fighter = destination.light_fighter.saturating_add(mission.light_fighter);
@@ -588,28 +637,171 @@ fn resolve_transport_planets(
             source.active_missions = source.active_missions.saturating_sub(1);
             return Ok(());
         }
+
+        // Different owner: deduct extra return fuel now from source planet.
+        let return_fuel = launch_fuel_cost(
+            mission.light_fighter,
+            mission.heavy_fighter,
+            mission.cruiser,
+            mission.battleship,
+            mission.battlecruiser,
+            mission.bomber,
+            mission.destroyer,
+            mission.deathstar,
+            mission.small_cargo,
+            mission.large_cargo,
+            mission.recycler,
+            mission.espionage_probe,
+            mission.colony_ship,
+            mission.speed_factor,
+        );
+
+        require!(
+            source.deuterium >= return_fuel,
+            GameStateError::InsufficientDeuterium
+        );
+
+        source.deuterium -= return_fuel;
+
+        // Ships return empty.
+        source.missions[slot].cargo_metal = 0;
+        source.missions[slot].cargo_crystal = 0;
+        source.missions[slot].cargo_deuterium = 0;
         source.set_mission_applied(slot, true);
+
         return Ok(());
     }
 
-    require!(mission.return_ts > 0 && now >= mission.return_ts, GameStateError::ReturnInFlight);
-    source.return_mission_assets(slot);
+    require!(
+        mission.return_ts > 0 && now >= mission.return_ts,
+        GameStateError::ReturnInFlight
+    );
+
+    source.return_mission_ships_only(slot);
     source.clear_mission(slot);
     source.active_missions = source.active_missions.saturating_sub(1);
     Ok(())
 }
 
-fn resolve_colonize_planet(source: &mut PlanetState, slot: usize, now: i64) -> Result<()> {
+fn resolve_colonize_planet(
+    source: &mut PlanetState,
+    player_profile: &mut Account<PlayerProfile>,
+    colony_planet: &mut Account<PlanetState>,
+    colony_bump: u8,
+    slot: usize,
+    now: i64,
+) -> Result<()> {
     require!(slot < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+
     let mission = source.mission(slot);
     require!(mission.mission_type == MISSION_COLONIZE, GameStateError::InvalidMission);
     require!(!mission.applied, GameStateError::AlreadyResolved);
     require!(now >= mission.arrive_ts, GameStateError::MissionInFlight);
     require!(mission.colony_ship > 0, GameStateError::MissingColonyShip);
-    validate_coordinates(mission.target_galaxy, mission.target_system, mission.target_position)?;
+
+    validate_coordinates(
+        mission.target_galaxy,
+        mission.target_system,
+        mission.target_position,
+    )?;
+
+    let coords_taken = source.galaxy == mission.target_galaxy
+        && source.system == mission.target_system
+        && source.position == mission.target_position;
+    require!(!coords_taken, GameStateError::InvalidDestination);
+
+    let params = InitializePlanetParams {
+        name: String::from_utf8_lossy(&mission.colony_name)
+            .trim_matches(char::from(0))
+            .trim()
+            .to_string(),
+        galaxy: mission.target_galaxy,
+        system: mission.target_system,
+        position: mission.target_position,
+
+        diameter: 8_000u32
+            + ((mission.target_galaxy as u32 * 997
+                + mission.target_system as u32 * 37
+                + mission.target_position as u32 * 101)
+                % 10_000),
+        temperature: (120i16 - (mission.target_position as i16 * 12)).clamp(-60, 120),
+        max_fields: 163u16
+            + ((mission.target_galaxy + mission.target_system + mission.target_position as u16) % 40),
+
+        used_fields: 3,
+        metal_mine: 1,
+        crystal_mine: 1,
+        deuterium_synthesizer: 1,
+        solar_plant: 1,
+        fusion_reactor: 0,
+        robotics_factory: 0,
+        nanite_factory: 0,
+        shipyard: 0,
+        metal_storage: 0,
+        crystal_storage: 0,
+        deuterium_tank: 0,
+        research_lab: 0,
+        missile_silo: 0,
+
+        energy_tech: 0,
+        combustion_drive: 0,
+        impulse_drive: 0,
+        hyperspace_drive: 0,
+        computer_tech: 0,
+        astrophysics: 0,
+        igr_network: 0,
+
+        research_queue_item: 255,
+        research_queue_target: 0,
+        research_finish_ts: 0,
+        build_queue_item: 255,
+        build_queue_target: 0,
+        build_finish_ts: 0,
+
+        metal: mission.cargo_metal,
+        crystal: mission.cargo_crystal,
+        deuterium: mission.cargo_deuterium,
+
+        metal_hour: 33,
+        crystal_hour: 22,
+        deuterium_hour: 14,
+        energy_production: 22,
+        energy_consumption: 42,
+        metal_cap: 1_000_000,
+        crystal_cap: 1_000_000,
+        deuterium_cap: 1_000_000,
+        last_update_ts: now,
+
+        small_cargo: mission.small_cargo,
+        large_cargo: mission.large_cargo,
+        light_fighter: mission.light_fighter,
+        heavy_fighter: mission.heavy_fighter,
+        cruiser: mission.cruiser,
+        battleship: mission.battleship,
+        battlecruiser: mission.battlecruiser,
+        bomber: mission.bomber,
+        destroyer: mission.destroyer,
+        deathstar: mission.deathstar,
+        recycler: mission.recycler,
+        espionage_probe: mission.espionage_probe,
+
+        // consumed to found the colony
+        colony_ship: 0,
+        solar_satellite: 0,
+    };
+
+    let authority = source.authority;
+    create_planet_state(
+        authority,
+        player_profile,
+        colony_planet,
+        colony_bump,
+        &params,
+    )?;
 
     source.clear_mission(slot);
     source.active_missions = source.active_missions.saturating_sub(1);
+
     Ok(())
 }
 
@@ -617,33 +809,118 @@ fn resolve_colonize_planet(source: &mut PlanetState, slot: usize, now: i64) -> R
 // Program
 // =============================================
 
-#[ephemeral]
 #[program]
 pub mod game_state {
     use super::*;
 
-    pub fn initialize_player(ctx: Context<InitializePlayer>) -> Result<()> {
+    /// One-time wallet setup: creates player profile + authorizes vault + stores encrypted backup.
+    /// After this, the wallet never needs to sign again unless explicitly managing the vault.
+    pub fn initialize_player(
+        ctx: Context<InitializePlayer>,
+        vault: Pubkey,
+        expires_at: i64,
+        backup_version: u8,
+        backup_ciphertext: Vec<u8>,
+        backup_iv: [u8; 12],
+        backup_salt: [u8; 16],
+        backup_kdf_salt: [u8; 16],
+    ) -> Result<()> {
+        require!(!backup_ciphertext.is_empty(), GameStateError::InvalidArgs);
+        require!(backup_ciphertext.len() <= 512, GameStateError::BackupTooLarge);
+
         let authority = ctx.accounts.authority.key();
+
         ctx.accounts.player_profile.set_inner(PlayerProfile {
             authority,
             planet_count: 0,
             bump: ctx.bumps.player_profile,
         });
+
+        let now = Clock::get()?.unix_timestamp;
+        require!(expires_at == 0 || expires_at > now, GameStateError::InvalidArgs);
+
+        ctx.accounts.authorized_vault.set_inner(AuthorizedVault {
+            authority,
+            vault,
+            expires_at,
+            revoked: false,
+            bump: ctx.bumps.authorized_vault,
+        });
+
+        ctx.accounts.vault_backup.set_inner(VaultBackup {
+            authority,
+            vault,
+            version: backup_version,
+            ciphertext: backup_ciphertext,
+            iv: backup_iv,
+            salt: backup_salt,
+            kdf_salt: backup_kdf_salt,
+            updated_at: now,
+            bump: ctx.bumps.vault_backup,
+        });
+
         Ok(())
     }
 
-    pub fn initialize_planet(ctx: Context<InitializePlanet>, params: InitializePlanetParams) -> Result<()> {
-        create_planet_state(
-            ctx.accounts.authority.key(),
-            &mut ctx.accounts.player_profile,
-            &mut ctx.accounts.planet_state,
-            ctx.bumps.planet_state,
-            &params,
-        )
+    /// Wallet-only: rotate vault key and update backup. Use when recovering on a new device.
+    pub fn rotate_vault(
+        ctx: Context<RotateVault>,
+        new_vault: Pubkey,
+        expires_at: i64,
+        backup_version: u8,
+        backup_ciphertext: Vec<u8>,
+        backup_iv: [u8; 12],
+        backup_salt: [u8; 16],
+        backup_kdf_salt: [u8; 16],
+    ) -> Result<()> {
+        require!(!backup_ciphertext.is_empty(), GameStateError::InvalidArgs);
+        require!(backup_ciphertext.len() <= 512, GameStateError::BackupTooLarge);
+
+        let now = Clock::get()?.unix_timestamp;
+        require!(expires_at == 0 || expires_at > now, GameStateError::InvalidArgs);
+
+        ctx.accounts.authorized_vault.vault = new_vault;
+        ctx.accounts.authorized_vault.expires_at = expires_at;
+        ctx.accounts.authorized_vault.revoked = false;
+
+        ctx.accounts.vault_backup.vault = new_vault;
+        ctx.accounts.vault_backup.version = backup_version;
+        ctx.accounts.vault_backup.ciphertext = backup_ciphertext;
+        ctx.accounts.vault_backup.iv = backup_iv;
+        ctx.accounts.vault_backup.salt = backup_salt;
+        ctx.accounts.vault_backup.kdf_salt = backup_kdf_salt;
+        ctx.accounts.vault_backup.updated_at = now;
+
+        Ok(())
     }
 
-    pub fn initialize_homeworld(ctx: Context<InitializePlanet>, params: InitializeHomeworldParams) -> Result<()> {
-        let authority = ctx.accounts.authority.key();
+    /// Wallet-only: revoke vault access (emergency lockout).
+    pub fn revoke_vault(ctx: Context<ManageVault>) -> Result<()> {
+        ctx.accounts.authorized_vault.revoked = true;
+        Ok(())
+    }
+
+    /// Wallet-only: extend vault expiry.
+    pub fn extend_vault(ctx: Context<ManageVault>, expires_at: i64) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        require!(expires_at == 0 || expires_at > now, GameStateError::InvalidArgs);
+        ctx.accounts.authorized_vault.expires_at = expires_at;
+        ctx.accounts.authorized_vault.revoked = false;
+        Ok(())
+    }
+
+    /// Vault-signed: initialize homeworld. Vault pays rent — no wallet popup.
+    pub fn initialize_homeworld(
+        ctx: Context<InitializePlanetVault>,
+        params: InitializeHomeworldParams,
+    ) -> Result<()> {
+        require_active_vault(
+            ctx.accounts.vault_signer.key(),
+            &ctx.accounts.authorized_vault,
+            ctx.accounts.player_profile.authority,
+        )?;
+
+        let authority = ctx.accounts.player_profile.authority;
         let auth_bytes = authority.to_bytes();
         let position = if params.position == 0 {
             (auth_bytes[3] % 15) + 1
@@ -661,58 +938,21 @@ pub mod game_state {
             temperature: (base_temp + ((auth_bytes[6] as i16) % 40 - 20)).clamp(-60, 120),
             max_fields: 163u16 + (auth_bytes[7] as u16 % 40),
             used_fields: 3,
-            metal_mine: 1,
-            crystal_mine: 1,
-            deuterium_synthesizer: 1,
-            solar_plant: 1,
-            fusion_reactor: 0,
-            robotics_factory: 0,
-            nanite_factory: 0,
-            shipyard: 0,
-            metal_storage: 0,
-            crystal_storage: 0,
-            deuterium_tank: 0,
-            research_lab: 0,
-            missile_silo: 0,
-            energy_tech: 0,
-            combustion_drive: 0,
-            impulse_drive: 0,
-            hyperspace_drive: 0,
-            computer_tech: 0,
-            astrophysics: 0,
-            igr_network: 0,
-            research_queue_item: 255,
-            research_queue_target: 0,
-            research_finish_ts: 0,
-            build_queue_item: 255,
-            build_queue_target: 0,
-            build_finish_ts: 0,
-            metal: 1_000_000,
-            crystal: 1_000_000,
-            deuterium: 1_000_000,
-            metal_hour: 33,
-            crystal_hour: 22,
-            deuterium_hour: 14,
-            energy_production: 22,
-            energy_consumption: 42,
-            metal_cap: 1_000_000,
-            crystal_cap: 1_000_000,
-            deuterium_cap: 1_000_000,
+            metal_mine: 1, crystal_mine: 1, deuterium_synthesizer: 1, solar_plant: 1,
+            fusion_reactor: 0, robotics_factory: 0, nanite_factory: 0, shipyard: 0,
+            metal_storage: 0, crystal_storage: 0, deuterium_tank: 0, research_lab: 0, missile_silo: 0,
+            energy_tech: 0, combustion_drive: 0, impulse_drive: 0, hyperspace_drive: 0,
+            computer_tech: 0, astrophysics: 0, igr_network: 0,
+            research_queue_item: 255, research_queue_target: 0, research_finish_ts: 0,
+            build_queue_item: 255, build_queue_target: 0, build_finish_ts: 0,
+            metal: 1_000_000, crystal: 1_000_000, deuterium: 1_000_000,
+            metal_hour: 33, crystal_hour: 22, deuterium_hour: 14,
+            energy_production: 22, energy_consumption: 42,
+            metal_cap: 1_000_000, crystal_cap: 1_000_000, deuterium_cap: 1_000_000,
             last_update_ts: params.now,
-            small_cargo: 0,
-            large_cargo: 0,
-            light_fighter: 0,
-            heavy_fighter: 0,
-            cruiser: 0,
-            battleship: 0,
-            battlecruiser: 0,
-            bomber: 0,
-            destroyer: 0,
-            deathstar: 0,
-            recycler: 0,
-            espionage_probe: 0,
-            colony_ship: 0,
-            solar_satellite: 0,
+            small_cargo: 0, large_cargo: 0, light_fighter: 0, heavy_fighter: 0,
+            cruiser: 0, battleship: 0, battlecruiser: 0, bomber: 0, destroyer: 0,
+            deathstar: 0, recycler: 0, espionage_probe: 0, colony_ship: 0, solar_satellite: 0,
         };
 
         create_planet_state(
@@ -724,7 +964,19 @@ pub mod game_state {
         )
     }
 
-    pub fn initialize_colony(ctx: Context<InitializePlanet>, params: InitializeColonyParams) -> Result<()> {
+    /// Vault-signed: initialize colony. Vault pays rent — no wallet popup.
+    pub fn initialize_colony(
+        ctx: Context<InitializePlanetVault>,
+        params: InitializeColonyParams,
+    ) -> Result<()> {
+        require_active_vault(
+            ctx.accounts.vault_signer.key(),
+            &ctx.accounts.authorized_vault,
+            ctx.accounts.player_profile.authority,
+        )?;
+
+        let authority = ctx.accounts.player_profile.authority;
+
         let planet_params = InitializePlanetParams {
             name: if params.name.is_empty() { "Colony".to_string() } else { params.name },
             galaxy: params.galaxy,
@@ -734,62 +986,28 @@ pub mod game_state {
             temperature: (120i16 - (params.position as i16 * 12)).clamp(-60, 120),
             max_fields: 163u16 + ((params.galaxy + params.system + params.position as u16) % 40),
             used_fields: 3,
-            metal_mine: 1,
-            crystal_mine: 1,
-            deuterium_synthesizer: 1,
-            solar_plant: 1,
-            fusion_reactor: 0,
-            robotics_factory: 0,
-            nanite_factory: 0,
-            shipyard: 0,
-            metal_storage: 0,
-            crystal_storage: 0,
-            deuterium_tank: 0,
-            research_lab: 0,
-            missile_silo: 0,
-            energy_tech: 0,
-            combustion_drive: 0,
-            impulse_drive: 0,
-            hyperspace_drive: 0,
-            computer_tech: 0,
-            astrophysics: 0,
-            igr_network: 0,
-            research_queue_item: 255,
-            research_queue_target: 0,
-            research_finish_ts: 0,
-            build_queue_item: 255,
-            build_queue_target: 0,
-            build_finish_ts: 0,
-            metal: params.cargo_metal,
-            crystal: params.cargo_crystal,
-            deuterium: params.cargo_deuterium,
-            metal_hour: 33,
-            crystal_hour: 22,
-            deuterium_hour: 14,
-            energy_production: 22,
-            energy_consumption: 42,
-            metal_cap: 1_000_000,
-            crystal_cap: 1_000_000,
-            deuterium_cap: 1_000_000,
+            metal_mine: 1, crystal_mine: 1, deuterium_synthesizer: 1, solar_plant: 1,
+            fusion_reactor: 0, robotics_factory: 0, nanite_factory: 0, shipyard: 0,
+            metal_storage: 0, crystal_storage: 0, deuterium_tank: 0, research_lab: 0, missile_silo: 0,
+            energy_tech: 0, combustion_drive: 0, impulse_drive: 0, hyperspace_drive: 0,
+            computer_tech: 0, astrophysics: 0, igr_network: 0,
+            research_queue_item: 255, research_queue_target: 0, research_finish_ts: 0,
+            build_queue_item: 255, build_queue_target: 0, build_finish_ts: 0,
+            metal: params.cargo_metal, crystal: params.cargo_crystal, deuterium: params.cargo_deuterium,
+            metal_hour: 33, crystal_hour: 22, deuterium_hour: 14,
+            energy_production: 22, energy_consumption: 42,
+            metal_cap: 1_000_000, crystal_cap: 1_000_000, deuterium_cap: 1_000_000,
             last_update_ts: params.now,
-            small_cargo: params.small_cargo,
-            large_cargo: params.large_cargo,
-            light_fighter: params.light_fighter,
-            heavy_fighter: params.heavy_fighter,
-            cruiser: params.cruiser,
-            battleship: params.battleship,
-            battlecruiser: params.battlecruiser,
-            bomber: params.bomber,
-            destroyer: params.destroyer,
-            deathstar: params.deathstar,
-            recycler: params.recycler,
-            espionage_probe: params.espionage_probe,
-            colony_ship: 0,
-            solar_satellite: params.solar_satellite,
+            small_cargo: params.small_cargo, large_cargo: params.large_cargo,
+            light_fighter: params.light_fighter, heavy_fighter: params.heavy_fighter,
+            cruiser: params.cruiser, battleship: params.battleship, battlecruiser: params.battlecruiser,
+            bomber: params.bomber, destroyer: params.destroyer, deathstar: params.deathstar,
+            recycler: params.recycler, espionage_probe: params.espionage_probe,
+            colony_ship: 0, solar_satellite: params.solar_satellite,
         };
 
         create_planet_state(
-            ctx.accounts.authority.key(),
+            authority,
             &mut ctx.accounts.player_profile,
             &mut ctx.accounts.planet_state,
             ctx.bumps.planet_state,
@@ -797,82 +1015,12 @@ pub mod game_state {
         )
     }
 
-    pub fn register_burner(ctx: Context<RegisterBurner>, expires_at: i64) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        require!(expires_at == 0 || expires_at > now, GameStateError::InvalidArgs);
-
-        ctx.accounts.authorized_burner.set_inner(AuthorizedBurner {
-            authority: ctx.accounts.authority.key(),
-            burner: ctx.accounts.burner.key(),
-            planet: ctx.accounts.planet_state.key(),
-            expires_at,
-            revoked: false,
-            bump: ctx.bumps.authorized_burner,
-        });
-        Ok(())
-    }
-
-    pub fn revoke_burner(ctx: Context<UpdateAuthorizedBurner>) -> Result<()> {
-        ctx.accounts.authorized_burner.revoked = true;
-        Ok(())
-    }
-
-    pub fn extend_burner(ctx: Context<UpdateAuthorizedBurner>, expires_at: i64) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        require!(expires_at == 0 || expires_at > now, GameStateError::InvalidArgs);
-        ctx.accounts.authorized_burner.expires_at = expires_at;
-        ctx.accounts.authorized_burner.revoked = false;
-        Ok(())
-    }
-
-    pub fn upsert_burner_backup(
-        ctx: Context<UpsertBurnerBackup>,
-        burner: Pubkey,
-        version: u8,
-        ciphertext: Vec<u8>,
-        iv: [u8; 12],
-        salt: [u8; 16],
-        kdf_salt: [u8; 16],
-    ) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        require!(!ciphertext.is_empty(), GameStateError::InvalidArgs);
-        require!(ciphertext.len() <= 512, GameStateError::BackupTooLarge);
-
-        if ctx.accounts.burner_backup.authority != Pubkey::default() {
-            require_keys_eq!(ctx.accounts.burner_backup.authority, ctx.accounts.authority.key(), GameStateError::Unauthorized);
-            require_keys_eq!(ctx.accounts.burner_backup.planet, ctx.accounts.planet.key(), GameStateError::InvalidBurnerAuthorization);
-        }
-
-        ctx.accounts.burner_backup.set_inner(BurnerBackup {
-            authority: ctx.accounts.authority.key(),
-            planet: ctx.accounts.planet.key(),
-            burner,
-            version,
-            ciphertext,
-            iv,
-            salt,
-            kdf_salt,
-            updated_at: now,
-            bump: ctx.bumps.burner_backup,
-        });
-        Ok(())
-    }
-
-    pub fn delete_burner_backup(_ctx: Context<DeleteBurnerBackup>) -> Result<()> {
-        Ok(())
-    }
-
     pub fn produce(ctx: Context<MutatePlanetState>, now: i64) -> Result<()> {
         produce_planet(&mut ctx.accounts.planet_state, now)
     }
 
-    pub fn produce_session(ctx: Context<MutatePlanetStateSession>, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        produce_planet(&mut ctx.accounts.planet_state, now)
-    }
-
-    pub fn produce_burner(ctx: Context<MutatePlanetStateBurner>, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn produce_vault(ctx: Context<MutatePlanetStateVault>, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         produce_planet(&mut ctx.accounts.planet_state, now)
     }
 
@@ -880,13 +1028,8 @@ pub mod game_state {
         start_build_planet(&mut ctx.accounts.planet_state, building_idx, now)
     }
 
-    pub fn start_build_session(ctx: Context<MutatePlanetStateSession>, building_idx: u8, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        start_build_planet(&mut ctx.accounts.planet_state, building_idx, now)
-    }
-
-    pub fn start_build_burner(ctx: Context<MutatePlanetStateBurner>, building_idx: u8, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn start_build_vault(ctx: Context<MutatePlanetStateVault>, building_idx: u8, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         start_build_planet(&mut ctx.accounts.planet_state, building_idx, now)
     }
 
@@ -894,13 +1037,8 @@ pub mod game_state {
         finish_build_planet(&mut ctx.accounts.planet_state, now)
     }
 
-    pub fn finish_build_session(ctx: Context<MutatePlanetStateSession>, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        finish_build_planet(&mut ctx.accounts.planet_state, now)
-    }
-
-    pub fn finish_build_burner(ctx: Context<MutatePlanetStateBurner>, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn finish_build_vault(ctx: Context<MutatePlanetStateVault>, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         finish_build_planet(&mut ctx.accounts.planet_state, now)
     }
 
@@ -908,13 +1046,8 @@ pub mod game_state {
         start_research_planet(&mut ctx.accounts.planet_state, tech_idx, now)
     }
 
-    pub fn start_research_session(ctx: Context<MutatePlanetStateSession>, tech_idx: u8, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        start_research_planet(&mut ctx.accounts.planet_state, tech_idx, now)
-    }
-
-    pub fn start_research_burner(ctx: Context<MutatePlanetStateBurner>, tech_idx: u8, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn start_research_vault(ctx: Context<MutatePlanetStateVault>, tech_idx: u8, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         start_research_planet(&mut ctx.accounts.planet_state, tech_idx, now)
     }
 
@@ -922,13 +1055,8 @@ pub mod game_state {
         finish_research_planet(&mut ctx.accounts.planet_state, now)
     }
 
-    pub fn finish_research_session(ctx: Context<MutatePlanetStateSession>, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        finish_research_planet(&mut ctx.accounts.planet_state, now)
-    }
-
-    pub fn finish_research_burner(ctx: Context<MutatePlanetStateBurner>, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn finish_research_vault(ctx: Context<MutatePlanetStateVault>, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         finish_research_planet(&mut ctx.accounts.planet_state, now)
     }
 
@@ -936,13 +1064,8 @@ pub mod game_state {
         build_ship_planet(&mut ctx.accounts.planet_state, ship_type, quantity, now)
     }
 
-    pub fn build_ship_session(ctx: Context<MutatePlanetStateSession>, ship_type: u8, quantity: u32, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        build_ship_planet(&mut ctx.accounts.planet_state, ship_type, quantity, now)
-    }
-
-    pub fn build_ship_burner(ctx: Context<MutatePlanetStateBurner>, ship_type: u8, quantity: u32, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn build_ship_vault(ctx: Context<MutatePlanetStateVault>, ship_type: u8, quantity: u32, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         build_ship_planet(&mut ctx.accounts.planet_state, ship_type, quantity, now)
     }
 
@@ -950,13 +1073,8 @@ pub mod game_state {
         launch_fleet_planet(&mut ctx.accounts.planet_state, params)
     }
 
-    pub fn launch_fleet_session(ctx: Context<MutatePlanetStateSession>, params: LaunchFleetParams) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        launch_fleet_planet(&mut ctx.accounts.planet_state, params)
-    }
-
-    pub fn launch_fleet_burner(ctx: Context<MutatePlanetStateBurner>, params: LaunchFleetParams) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
+    pub fn launch_fleet_vault(ctx: Context<MutatePlanetStateVault>, params: LaunchFleetParams) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.planet_state.authority)?;
         launch_fleet_planet(&mut ctx.accounts.planet_state, params)
     }
 
@@ -964,272 +1082,284 @@ pub mod game_state {
         resolve_transport_planets(&mut ctx.accounts.source_planet, &mut ctx.accounts.destination_planet, slot as usize, now)
     }
 
-    pub fn resolve_transport_session(ctx: Context<ResolveTransportSession>, slot: u8, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.source_planet.authority)?;
+    pub fn resolve_transport_vault(ctx: Context<ResolveTransportVault>, slot: u8, now: i64) -> Result<()> {
+        require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, ctx.accounts.source_planet.authority)?;
         resolve_transport_planets(&mut ctx.accounts.source_planet, &mut ctx.accounts.destination_planet, slot as usize, now)
     }
 
-    pub fn resolve_transport_burner(ctx: Context<ResolveTransportBurner>, slot: u8, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.source_planet.key(), ctx.accounts.source_planet.authority)?;
-        resolve_transport_planets(&mut ctx.accounts.source_planet, &mut ctx.accounts.destination_planet, slot as usize, now)
-    }
-
-    pub fn resolve_colonize(ctx: Context<MutatePlanetState>, slot: u8, now: i64) -> Result<()> {
-        resolve_colonize_planet(&mut ctx.accounts.planet_state, slot as usize, now)
-    }
-
-    pub fn resolve_colonize_session(ctx: Context<MutatePlanetStateSession>, slot: u8, now: i64) -> Result<()> {
-        require_active_session(ctx.accounts.session_signer.key(), &ctx.accounts.session_token, ctx.accounts.planet_state.authority)?;
-        resolve_colonize_planet(&mut ctx.accounts.planet_state, slot as usize, now)
-    }
-
-    pub fn resolve_colonize_burner(ctx: Context<MutatePlanetStateBurner>, slot: u8, now: i64) -> Result<()> {
-        require_active_burner(ctx.accounts.burner_signer.key(), &ctx.accounts.authorized_burner, ctx.accounts.planet_state.key(), ctx.accounts.planet_state.authority)?;
-        resolve_colonize_planet(&mut ctx.accounts.planet_state, slot as usize, now)
-    }
-
-    pub fn delegate(
-        ctx: Context<DelegatePlanetState>,
-        commit_frequency_ms: u32,
-        validator: Option<Pubkey>,
-    ) -> Result<()> {
-        let (authority, planet_index) = {
-            let data = ctx.accounts.pda.try_borrow_data()?;
-            let mut data_slice: &[u8] = &data;
-            let planet_state = PlanetState::try_deserialize(&mut data_slice)?;
-            (planet_state.authority, planet_state.planet_index)
-        };
-
-        require_keys_eq!(ctx.accounts.payer.key(), authority, GameStateError::Unauthorized);
-
-        let authority_bytes = authority.to_bytes();
-        let planet_index_bytes = planet_index.to_le_bytes();
-        let (expected_pda, _) = Pubkey::find_program_address(
-            &[b"planet_state", authority_bytes.as_ref(), planet_index_bytes.as_ref()],
-            ctx.program_id,
-        );
-        require_keys_eq!(ctx.accounts.pda.key(), expected_pda, GameStateError::Unauthorized);
-
-        ctx.accounts.delegate_pda(
-            &ctx.accounts.payer,
-            &[b"planet_state", authority_bytes.as_ref(), planet_index_bytes.as_ref()],
-            DelegateConfig { commit_frequency_ms, validator },
-        )?;
-        Ok(())
-    }
-pub fn commit_planet_state(ctx: Context<CommitPlanetStates>) -> Result<()> {
-    Ok(commit_accounts(
-        &ctx.accounts.payer.to_account_info(),
-        vec![&ctx.accounts.primary_planet.to_account_info()],
-        &ctx.accounts.magic_context.to_account_info(),
-        &ctx.accounts.magic_program.to_account_info(),
-    )?)
+pub fn resolve_colonize(ctx: Context<ResolveColonize>, slot: u8, now: i64) -> Result<()> {
+    resolve_colonize_planet(
+        &mut ctx.accounts.source_planet,
+        &mut ctx.accounts.player_profile,
+        &mut ctx.accounts.colony_planet,
+        ctx.bumps.colony_planet,
+        slot as usize,
+        now,
+    )
 }
 
-pub fn commit_two_planet_states(ctx: Context<CommitPlanetStates>) -> Result<()> {
-    let secondary_planet = ctx
-        .accounts
-        .secondary_planet
-        .as_ref()
-        .ok_or(GameStateError::InvalidArgs)?;
+pub fn resolve_colonize_vault(
+    ctx: Context<ResolveColonizeVault>,
+    slot: u8,
+    now: i64,
+) -> Result<()> {
+    require_active_vault(
+        ctx.accounts.vault_signer.key(),
+        &ctx.accounts.authorized_vault,
+        ctx.accounts.source_planet.authority,
+    )?;
 
-    Ok(commit_accounts(
-        &ctx.accounts.payer.to_account_info(),
-        vec![
-            &ctx.accounts.primary_planet.to_account_info(),
-            &secondary_planet.to_account_info(),
-        ],
-        &ctx.accounts.magic_context.to_account_info(),
-        &ctx.accounts.magic_program.to_account_info(),
-    )?)
-}
-
-pub fn commit_and_undelegate_planet_state(ctx: Context<CommitPlanetStates>) -> Result<()> {
-    Ok(commit_and_undelegate_accounts(
-        &ctx.accounts.payer.to_account_info(),
-        vec![&ctx.accounts.primary_planet.to_account_info()],
-        &ctx.accounts.magic_context.to_account_info(),
-        &ctx.accounts.magic_program.to_account_info(),
-    )?)
-}
-
-pub fn commit_and_undelegate_two_planet_states(ctx: Context<CommitPlanetStates>) -> Result<()> {
-    let secondary_planet = ctx
-        .accounts
-        .secondary_planet
-        .as_ref()
-        .ok_or(GameStateError::InvalidArgs)?;
-
-    Ok(commit_and_undelegate_accounts(
-        &ctx.accounts.payer.to_account_info(),
-        vec![
-            &ctx.accounts.primary_planet.to_account_info(),
-            &secondary_planet.to_account_info(),
-        ],
-        &ctx.accounts.magic_context.to_account_info(),
-        &ctx.accounts.magic_program.to_account_info(),
-    )?)
+    resolve_colonize_planet(
+        &mut ctx.accounts.source_planet,
+        &mut ctx.accounts.player_profile,
+        &mut ctx.accounts.colony_planet,
+        ctx.bumps.colony_planet,
+        slot as usize,
+        now,
+    )
 }
 }
+
 // =============================================
-// Account Contexts (with all CHECK comments)
+// Account Contexts
 // =============================================
 
+/// One-time wallet setup: creates profile, authorizes vault, stores backup — all in one tx.
 #[derive(Accounts)]
 pub struct InitializePlayer<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    #[account(init, payer = authority, space = PLAYER_PROFILE_SPACE, seeds = [b"player_profile", authority.key().as_ref()], bump)]
+    #[account(
+        init,
+        payer = authority,
+        space = PLAYER_PROFILE_SPACE,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump
+    )]
     pub player_profile: Account<'info, PlayerProfile>,
+    #[account(
+        init,
+        payer = authority,
+        space = AUTHORIZED_VAULT_SPACE,
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+    #[account(
+        init,
+        payer = authority,
+        space = VAULT_BACKUP_SPACE,
+        seeds = [b"vault_backup", authority.key().as_ref()],
+        bump
+    )]
+    pub vault_backup: Account<'info, VaultBackup>,
     pub system_program: Program<'info, System>,
 }
 
+/// Wallet-only: rotate vault keypair and update backup simultaneously.
 #[derive(Accounts)]
-pub struct InitializePlanet<'info> {
+pub struct RotateVault<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"player_profile", authority.key().as_ref()], bump = player_profile.bump, has_one = authority @ GameStateError::Unauthorized)]
+    #[account(
+        mut,
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump = authorized_vault.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+    #[account(
+        mut,
+        seeds = [b"vault_backup", authority.key().as_ref()],
+        bump = vault_backup.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub vault_backup: Account<'info, VaultBackup>,
+}
+
+/// Wallet-only: revoke or extend vault.
+#[derive(Accounts)]
+pub struct ManageVault<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump = authorized_vault.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+}
+
+/// Vault-signed planet creation. Vault is payer — no wallet popup.
+#[derive(Accounts)]
+pub struct InitializePlanetVault<'info> {
+    /// The vault keypair signs and pays rent.
+    #[account(mut)]
+    pub vault_signer: Signer<'info>,
+    /// CHECK: authority is read from player_profile.authority — not a signer.
+    pub authority: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump = authorized_vault.bump,
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+    #[account(
+        mut,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
     pub player_profile: Account<'info, PlayerProfile>,
-    #[account(init, payer = authority, space = PLANET_STATE_SPACE, seeds = [b"planet_state", authority.key().as_ref(), &player_profile.planet_count.to_le_bytes()], bump)]
+    #[account(
+        init,
+        payer = vault_signer,
+        space = PLANET_STATE_SPACE,
+        seeds = [b"planet_state", authority.key().as_ref(), &player_profile.planet_count.to_le_bytes()],
+        bump
+    )]
     pub planet_state: Account<'info, PlanetState>,
     pub system_program: Program<'info, System>,
 }
 
+/// Wallet-signed planet mutation (fallback / recovery path).
 #[derive(Accounts)]
 pub struct MutatePlanetState<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"planet_state", authority.key().as_ref(), &planet_state.planet_index.to_le_bytes()], bump = planet_state.bump, has_one = authority @ GameStateError::Unauthorized)]
+    #[account(
+        mut,
+        seeds = [b"planet_state", authority.key().as_ref(), &planet_state.planet_index.to_le_bytes()],
+        bump = planet_state.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
     pub planet_state: Account<'info, PlanetState>,
 }
 
+/// Vault-signed planet mutation — normal gameplay path, no wallet popup.
 #[derive(Accounts)]
-pub struct MutatePlanetStateSession<'info> {
+pub struct MutatePlanetStateVault<'info> {
     #[account(mut)]
-    pub session_signer: Signer<'info>,
-    /// CHECK: Verified manually against SESSION_PROGRAM_ID and deserialized inside require_active_session
-    #[account(owner = SESSION_PROGRAM_ID)]
-    pub session_token: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub planet_state: Account<'info, PlanetState>,
-}
-
-#[derive(Accounts)]
-pub struct MutatePlanetStateBurner<'info> {
-    #[account(mut)]
-    pub burner_signer: Signer<'info>,
-    #[account(seeds = [b"authorized_burner", planet_state.key().as_ref(), burner_signer.key().as_ref()], bump = authorized_burner.bump)]
-    pub authorized_burner: Account<'info, AuthorizedBurner>,
+    pub vault_signer: Signer<'info>,
+    #[account(
+        seeds = [b"authorized_vault", planet_state.authority.as_ref()],
+        bump = authorized_vault.bump,
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
     #[account(mut)]
     pub planet_state: Account<'info, PlanetState>,
 }
 
+/// Wallet-signed transport resolution (fallback).
 #[derive(Accounts)]
 pub struct ResolveTransport<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()], bump = source_planet.bump, has_one = authority @ GameStateError::Unauthorized)]
+    #[account(
+        mut,
+        seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()],
+        bump = source_planet.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub source_planet: Account<'info, PlanetState>,
+    #[account(mut)]
+    pub destination_planet: Account<'info, PlanetState>,
+}
+
+/// Vault-signed transport resolution — no wallet popup.
+#[derive(Accounts)]
+pub struct ResolveTransportVault<'info> {
+    #[account(mut)]
+    pub vault_signer: Signer<'info>,
+    #[account(
+        seeds = [b"authorized_vault", source_planet.authority.as_ref()],
+        bump = authorized_vault.bump,
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+    #[account(mut)]
     pub source_planet: Account<'info, PlanetState>,
     #[account(mut)]
     pub destination_planet: Account<'info, PlanetState>,
 }
 
 #[derive(Accounts)]
-pub struct ResolveTransportSession<'info> {
-    #[account(mut)]
-    pub session_signer: Signer<'info>,
-    /// CHECK: Verified manually against SESSION_PROGRAM_ID and deserialized inside require_active_session
-    #[account(owner = SESSION_PROGRAM_ID)]
-    pub session_token: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub source_planet: Account<'info, PlanetState>,
-    #[account(mut)]
-    pub destination_planet: Account<'info, PlanetState>,
-}
-
-#[derive(Accounts)]
-pub struct ResolveTransportBurner<'info> {
-    #[account(mut)]
-    pub burner_signer: Signer<'info>,
-    #[account(seeds = [b"authorized_burner", source_planet.key().as_ref(), burner_signer.key().as_ref()], bump = authorized_burner.bump)]
-    pub authorized_burner: Account<'info, AuthorizedBurner>,
-    #[account(mut)]
-    pub source_planet: Account<'info, PlanetState>,
-    #[account(mut)]
-    pub destination_planet: Account<'info, PlanetState>,
-}
-
-#[derive(Accounts)]
-pub struct RegisterBurner<'info> {
+pub struct ResolveColonize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    /// CHECK: The wallet deliberately chooses which burner pubkey to authorize.
-    pub burner: UncheckedAccount<'info>,
-    #[account(seeds = [b"planet_state", authority.key().as_ref(), &planet_state.planet_index.to_le_bytes()], bump = planet_state.bump, has_one = authority @ GameStateError::Unauthorized)]
-    pub planet_state: Account<'info, PlanetState>,
-    #[account(init_if_needed, payer = authority, space = AUTHORIZED_BURNER_SPACE, seeds = [b"authorized_burner", planet_state.key().as_ref(), burner.key().as_ref()], bump)]
-    pub authorized_burner: Account<'info, AuthorizedBurner>,
+
+    #[account(
+        mut,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Account<'info, PlayerProfile>,
+
+    #[account(
+        mut,
+        seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()],
+        bump = source_planet.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub source_planet: Account<'info, PlanetState>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = PLANET_STATE_SPACE,
+        seeds = [b"planet_state", authority.key().as_ref(), &player_profile.planet_count.to_le_bytes()],
+        bump
+    )]
+    pub colony_planet: Account<'info, PlanetState>,
+
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct UpdateAuthorizedBurner<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    /// CHECK: The wallet deliberately chooses which burner pubkey to manage.
-    pub burner: UncheckedAccount<'info>,
-    /// CHECK: Used only as PDA seed for identity check.
-    pub planet: UncheckedAccount<'info>,
-    #[account(mut, seeds = [b"authorized_burner", planet.key().as_ref(), burner.key().as_ref()], bump = authorized_burner.bump,
-        constraint = authorized_burner.authority == authority.key() @ GameStateError::InvalidBurnerAuthorization,
-        constraint = authorized_burner.burner == burner.key() @ GameStateError::InvalidBurnerAuthorization,
-        constraint = authorized_burner.planet == planet.key() @ GameStateError::InvalidBurnerAuthorization)]
-    pub authorized_burner: Account<'info, AuthorizedBurner>,
-}
 
 #[derive(Accounts)]
-pub struct UpsertBurnerBackup<'info> {
+pub struct ResolveColonizeVault<'info> {
     #[account(mut)]
-    pub authority: Signer<'info>,
-    /// CHECK: Used only as a wallet-scoped recovery namespace seed.
-    pub planet: UncheckedAccount<'info>,
-    #[account(init_if_needed, payer = authority, space = BURNER_BACKUP_SPACE, seeds = [b"burner_backup", authority.key().as_ref(), planet.key().as_ref()], bump)]
-    pub burner_backup: Account<'info, BurnerBackup>,
+    pub vault_signer: Signer<'info>,
+
+    /// CHECK: authority comes from player_profile / source_planet checks
+    pub authority: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump = authorized_vault.bump,
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+
+    #[account(
+        mut,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Account<'info, PlayerProfile>,
+
+    #[account(
+        mut,
+        seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()],
+        bump = source_planet.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub source_planet: Account<'info, PlanetState>,
+
+    #[account(
+        init,
+        payer = vault_signer,
+        space = PLANET_STATE_SPACE,
+        seeds = [b"planet_state", authority.key().as_ref(), &player_profile.planet_count.to_le_bytes()],
+        bump
+    )]
+    pub colony_planet: Account<'info, PlanetState>,
+
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct DeleteBurnerBackup<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    /// CHECK: Used only as a wallet-scoped recovery namespace seed.
-    pub planet: UncheckedAccount<'info>,
-    #[account(mut, close = authority, seeds = [b"burner_backup", authority.key().as_ref(), planet.key().as_ref()], bump = burner_backup.bump,
-        constraint = burner_backup.authority == authority.key() @ GameStateError::Unauthorized,
-        constraint = burner_backup.planet == planet.key() @ GameStateError::InvalidBurnerAuthorization)]
-    pub burner_backup: Account<'info, BurnerBackup>,
-}
 
-#[delegate]
-#[derive(Accounts)]
-pub struct DelegatePlanetState<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    /// CHECK: Verified by deserializing PlanetState and recomputing the PDA seeds before delegating.
-    #[account(mut, del)]
-    pub pda: AccountInfo<'info>,
-}
 
-#[commit]
-#[derive(Accounts)]
-pub struct CommitPlanetStates<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(mut)]
-    pub primary_planet: Account<'info, PlanetState>,
-    #[account(mut)]
-    pub secondary_planet: Option<Account<'info, PlanetState>>, // 👈 optional
-}
 // =============================================
 // Account Data
 // =============================================
@@ -1243,19 +1373,10 @@ pub struct PlayerProfile {
 }
 
 #[account]
-pub struct SessionToken {
-    pub authority: Pubkey,
-    pub target_program: Pubkey,
-    pub session_signer: Pubkey,
-    pub valid_until: i64,
-}
-
-#[account]
 #[derive(InitSpace)]
-pub struct AuthorizedBurner {
+pub struct AuthorizedVault {
     pub authority: Pubkey,
-    pub burner: Pubkey,
-    pub planet: Pubkey,
+    pub vault: Pubkey,
     pub expires_at: i64,
     pub revoked: bool,
     pub bump: u8,
@@ -1263,10 +1384,9 @@ pub struct AuthorizedBurner {
 
 #[account]
 #[derive(InitSpace)]
-pub struct BurnerBackup {
+pub struct VaultBackup {
     pub authority: Pubkey,
-    pub planet: Pubkey,
-    pub burner: Pubkey,
+    pub vault: Pubkey,
     pub version: u8,
     #[max_len(512)]
     pub ciphertext: Vec<u8>,
@@ -1348,68 +1468,64 @@ pub struct PlanetState {
     pub bump: u8,
 }
 
+
+#[account]
+#[derive(InitSpace)]
+pub struct PlanetCoordinates {
+    pub galaxy: u16,
+    pub system: u16,
+    pub position: u8,
+    pub planet: Pubkey,
+    pub authority: Pubkey,
+    pub bump: u8,
+}
+
 impl PlanetState {
     pub fn building_level(&self, idx: u8) -> u8 {
         match idx {
-            0 => self.metal_mine,
-            1 => self.crystal_mine,
-            2 => self.deuterium_synthesizer,
-            3 => self.solar_plant,
-            4 => self.fusion_reactor,
-            5 => self.robotics_factory,
-            6 => self.nanite_factory,
-            7 => self.shipyard,
-            8 => self.metal_storage,
-            9 => self.crystal_storage,
-            10 => self.deuterium_tank,
-            11 => self.research_lab,
-            12 => self.missile_silo,
-            _ => 0,
+            0 => self.metal_mine, 1 => self.crystal_mine, 2 => self.deuterium_synthesizer,
+            3 => self.solar_plant, 4 => self.fusion_reactor, 5 => self.robotics_factory,
+            6 => self.nanite_factory, 7 => self.shipyard, 8 => self.metal_storage,
+            9 => self.crystal_storage, 10 => self.deuterium_tank, 11 => self.research_lab,
+            12 => self.missile_silo, _ => 0,
         }
     }
 
     pub fn set_building_level(&mut self, idx: u8, level: u8) {
         match idx {
-            0 => self.metal_mine = level,
-            1 => self.crystal_mine = level,
-            2 => self.deuterium_synthesizer = level,
-            3 => self.solar_plant = level,
-            4 => self.fusion_reactor = level,
-            5 => self.robotics_factory = level,
-            6 => self.nanite_factory = level,
-            7 => self.shipyard = level,
-            8 => self.metal_storage = level,
-            9 => self.crystal_storage = level,
-            10 => self.deuterium_tank = level,
-            11 => self.research_lab = level,
-            12 => self.missile_silo = level,
-            _ => {}
+            0 => self.metal_mine = level, 1 => self.crystal_mine = level,
+            2 => self.deuterium_synthesizer = level, 3 => self.solar_plant = level,
+            4 => self.fusion_reactor = level, 5 => self.robotics_factory = level,
+            6 => self.nanite_factory = level, 7 => self.shipyard = level,
+            8 => self.metal_storage = level, 9 => self.crystal_storage = level,
+            10 => self.deuterium_tank = level, 11 => self.research_lab = level,
+            12 => self.missile_silo = level, _ => {}
         }
     }
 
     pub fn research_level(&self, idx: u8) -> u8 {
         match idx {
-            0 => self.energy_tech,
-            1 => self.combustion_drive,
-            2 => self.impulse_drive,
-            3 => self.hyperspace_drive,
-            4 => self.computer_tech,
-            5 => self.astrophysics,
-            6 => self.igr_network,
-            _ => 0,
+            0 => self.energy_tech, 1 => self.combustion_drive, 2 => self.impulse_drive,
+            3 => self.hyperspace_drive, 4 => self.computer_tech, 5 => self.astrophysics,
+            6 => self.igr_network, _ => 0,
         }
     }
 
+    fn planet_coords_seeds(galaxy: u16, system: u16, position: u8) -> [Vec<u8>; 4] {
+    [
+        b"planet_coords".to_vec(),
+        galaxy.to_le_bytes().to_vec(),
+        system.to_le_bytes().to_vec(),
+        vec![position],
+    ]
+}
+
     pub fn set_research_level(&mut self, idx: u8, level: u8) {
         match idx {
-            0 => self.energy_tech = level,
-            1 => self.combustion_drive = level,
-            2 => self.impulse_drive = level,
-            3 => self.hyperspace_drive = level,
-            4 => self.computer_tech = level,
-            5 => self.astrophysics = level,
-            6 => self.igr_network = level,
-            _ => {}
+            0 => self.energy_tech = level, 1 => self.combustion_drive = level,
+            2 => self.impulse_drive = level, 3 => self.hyperspace_drive = level,
+            4 => self.computer_tech = level, 5 => self.astrophysics = level,
+            6 => self.igr_network = level, _ => {}
         }
     }
 
@@ -1417,41 +1533,48 @@ impl PlanetState {
         (0..MAX_MISSIONS).find(|&i| self.missions[i].mission_type == 0)
     }
 
-    pub fn mission(&self, slot: usize) -> MissionState {
-        self.missions[slot]
-    }
-
-    pub fn set_mission(&mut self, slot: usize, mission: MissionState) {
-        self.missions[slot] = mission;
-    }
-
-    pub fn set_mission_applied(&mut self, slot: usize, applied: bool) {
-        self.missions[slot].applied = applied;
-    }
-
-    pub fn clear_mission(&mut self, slot: usize) {
-        self.missions[slot] = MissionState::default();
-    }
+    pub fn mission(&self, slot: usize) -> MissionState { self.missions[slot] }
+    pub fn set_mission(&mut self, slot: usize, m: MissionState) { self.missions[slot] = m; }
+    pub fn set_mission_applied(&mut self, slot: usize, applied: bool) { self.missions[slot].applied = applied; }
+    pub fn clear_mission(&mut self, slot: usize) { self.missions[slot] = MissionState::default(); }
 
     pub fn return_mission_assets(&mut self, slot: usize) {
-        let mission = self.missions[slot];
-        self.light_fighter = self.light_fighter.saturating_add(mission.light_fighter);
-        self.heavy_fighter = self.heavy_fighter.saturating_add(mission.heavy_fighter);
-        self.cruiser = self.cruiser.saturating_add(mission.cruiser);
-        self.battleship = self.battleship.saturating_add(mission.battleship);
-        self.battlecruiser = self.battlecruiser.saturating_add(mission.battlecruiser);
-        self.bomber = self.bomber.saturating_add(mission.bomber);
-        self.destroyer = self.destroyer.saturating_add(mission.destroyer);
-        self.deathstar = self.deathstar.saturating_add(mission.deathstar);
-        self.small_cargo = self.small_cargo.saturating_add(mission.small_cargo);
-        self.large_cargo = self.large_cargo.saturating_add(mission.large_cargo);
-        self.recycler = self.recycler.saturating_add(mission.recycler);
-        self.espionage_probe = self.espionage_probe.saturating_add(mission.espionage_probe);
-        self.colony_ship = self.colony_ship.saturating_add(mission.colony_ship);
-        self.metal = self.metal.saturating_add(mission.cargo_metal);
-        self.crystal = self.crystal.saturating_add(mission.cargo_crystal);
-        self.deuterium = self.deuterium.saturating_add(mission.cargo_deuterium);
+        let m = self.missions[slot];
+        self.light_fighter = self.light_fighter.saturating_add(m.light_fighter);
+        self.heavy_fighter = self.heavy_fighter.saturating_add(m.heavy_fighter);
+        self.cruiser = self.cruiser.saturating_add(m.cruiser);
+        self.battleship = self.battleship.saturating_add(m.battleship);
+        self.battlecruiser = self.battlecruiser.saturating_add(m.battlecruiser);
+        self.bomber = self.bomber.saturating_add(m.bomber);
+        self.destroyer = self.destroyer.saturating_add(m.destroyer);
+        self.deathstar = self.deathstar.saturating_add(m.deathstar);
+        self.small_cargo = self.small_cargo.saturating_add(m.small_cargo);
+        self.large_cargo = self.large_cargo.saturating_add(m.large_cargo);
+        self.recycler = self.recycler.saturating_add(m.recycler);
+        self.espionage_probe = self.espionage_probe.saturating_add(m.espionage_probe);
+        self.colony_ship = self.colony_ship.saturating_add(m.colony_ship);
+        self.metal = self.metal.saturating_add(m.cargo_metal);
+        self.crystal = self.crystal.saturating_add(m.cargo_crystal);
+        self.deuterium = self.deuterium.saturating_add(m.cargo_deuterium);
     }
+
+    pub fn return_mission_ships_only(&mut self, slot: usize) {
+    let m = self.missions[slot];
+    self.light_fighter = self.light_fighter.saturating_add(m.light_fighter);
+    self.heavy_fighter = self.heavy_fighter.saturating_add(m.heavy_fighter);
+    self.cruiser = self.cruiser.saturating_add(m.cruiser);
+    self.battleship = self.battleship.saturating_add(m.battleship);
+    self.battlecruiser = self.battlecruiser.saturating_add(m.battlecruiser);
+    self.bomber = self.bomber.saturating_add(m.bomber);
+    self.destroyer = self.destroyer.saturating_add(m.destroyer);
+    self.deathstar = self.deathstar.saturating_add(m.deathstar);
+    self.small_cargo = self.small_cargo.saturating_add(m.small_cargo);
+    self.large_cargo = self.large_cargo.saturating_add(m.large_cargo);
+    self.recycler = self.recycler.saturating_add(m.recycler);
+    self.espionage_probe = self.espionage_probe.saturating_add(m.espionage_probe);
+    self.colony_ship = self.colony_ship.saturating_add(m.colony_ship);
+}
+
 
     pub fn add_ship(&mut self, ship_type: u8, quantity: u32) -> Result<()> {
         match ship_type {
@@ -1502,6 +1625,7 @@ pub struct MissionState {
     pub cargo_crystal: u64,
     pub cargo_deuterium: u64,
     pub applied: bool,
+    pub speed_factor: u8
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
@@ -1623,7 +1747,6 @@ pub struct LaunchFleetParams {
     pub cargo_deuterium: u64,
     pub speed_factor: u8,
     pub now: i64,
-    pub flight_seconds: i64,
     pub target_galaxy: u16,
     pub target_system: u16,
     pub target_position: u8,
@@ -1694,16 +1817,12 @@ pub enum GameStateError {
     AlreadyResolved,
     #[msg("Colonize mission is missing a colony ship.")]
     MissingColonyShip,
-    #[msg("The provided session token is invalid for this instruction.")]
-    InvalidSession,
-    #[msg("The provided session token has expired.")]
-    SessionExpired,
-    #[msg("The provided burner authorization is invalid for this instruction.")]
-    InvalidBurnerAuthorization,
-    #[msg("The provided burner authorization has expired.")]
-    BurnerAuthorizationExpired,
-    #[msg("The provided burner authorization was revoked.")]
-    BurnerAuthorizationRevoked,
-    #[msg("Encrypted burner backup is too large.")]
+    #[msg("The provided vault authorization is invalid.")]
+    InvalidVaultAuthorization,
+    #[msg("The provided vault authorization has expired.")]
+    VaultAuthorizationExpired,
+    #[msg("The provided vault authorization was revoked.")]
+    VaultAuthorizationRevoked,
+    #[msg("Encrypted vault backup is too large.")]
     BackupTooLarge,
 }

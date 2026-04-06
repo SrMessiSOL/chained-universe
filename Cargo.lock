@@ -829,54 +829,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "ephemeral-rollups-sdk"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "567ff99d5766f34bb5dfbb0b9ec3ce30e6bb5dbe93fa831883c7fda6d7df96ce"
-dependencies = [
- "anchor-lang",
- "borsh 0.10.4",
- "ephemeral-rollups-sdk-attribute-commit",
- "ephemeral-rollups-sdk-attribute-delegate",
- "ephemeral-rollups-sdk-attribute-ephemeral",
- "paste",
- "solana-program",
-]
-
-[[package]]
-name = "ephemeral-rollups-sdk-attribute-commit"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a88ae7f92b30267c17f6410c0a873aa9b24e6a1459b875ed462bd10018aa5ae"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "ephemeral-rollups-sdk-attribute-delegate"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2c43c60fb3c495a0488a08d328618edf18470500e8c07e18ea71d856d670530"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "ephemeral-rollups-sdk-attribute-ephemeral"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67a7d9c9bedc7dd94f6762dc0ec9df6862334ef416463e5c7d577c85abf94c19"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -899,7 +851,6 @@ name = "game-state"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
- "ephemeral-rollups-sdk",
 ]
 
 [[package]]
