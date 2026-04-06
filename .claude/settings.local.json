@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo metadata:*)",
+      "Bash(cargo vendor:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(cd /tmp)",
+      "Bash(curl -s https://crates.io/api/v1/crates/ephemeral-rollups-sdk/0.2.1/download -o ephemeral-sdk.tar.gz)"
+    ]
+  }
+}
