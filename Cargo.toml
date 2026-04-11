@@ -2,11 +2,14 @@
 [workspace]
 members = [
     "programs/game-state",
+        "programs/market",
+
 ]
 resolver = "2"
 
 [workspace.dependencies]
 anchor-lang = { version = "0.30.1" }
+anchor-spl = { version = "0.30.1" }
 
 [profile.release]
 overflow-checks = true

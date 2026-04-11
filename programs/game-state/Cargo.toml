@@ -13,8 +13,8 @@ cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 [dependencies]
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
-ephemeral-rollups-sdk = { version = "=0.2.1", features = ["anchor"] }
+anchor-spl = { workspace = true }
