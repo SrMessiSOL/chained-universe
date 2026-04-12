@@ -1,7 +1,8 @@
 # Migration History
 
 This document records the transition from the original BOLT ECS layout to the
-unified `game-state` program.
+current `game-state` + `market` architecture used by Chained Universe /
+SolarGrid.
 
 ## Original Architecture
 
@@ -28,8 +29,10 @@ showed up:
    delegated accounts.
 3. Delegation support for the new unified account model had to be reintroduced
    explicitly.
-4. Even after delegation worked, gameplay instructions still required the
-   wallet signer because authorization had not yet moved to a session model.
+4. Gameplay instructions were still too wallet-heavy for a strategy game with
+   lots of repeated actions.
+5. Economy features were hard to reason about cleanly while gameplay state was
+   still being consolidated.
 
 ## Step 1: Unified State
 
@@ -43,7 +46,8 @@ important gameplay fields into one owner-program account model:
 - stationed fleet
 - missions
 
-This solved the ownership problem for explicit commits.
+This solved the ownership problem for explicit commits and established one
+program as the source of truth for gameplay progression.
 
 ## Step 2: Owner-Program Delegation
 
@@ -58,49 +62,80 @@ That was fixed by:
 
 This enabled `PlanetState` to participate correctly in delegated execution.
 
-## Step 3: Runtime Fixes
+## Step 3: Runtime Fixes During Delegation Rollout
 
-During delegation rollout, two backend issues were fixed:
+During delegation rollout, backend and runtime issues were fixed, including:
 
 - a Rust lifetime issue while deserializing the delegated PDA
-- an account borrow conflict caused by holding a borrowed data reference during
-  the delegation CPI
+- an account borrow conflict caused by holding borrowed data during a CPI
+- account-shape and seed validation cleanup needed for the unified PDA model
 
-These were resolved by:
+These were resolved by narrowing borrow scope, deserializing directly from raw
+data where needed, and tightening seed/account validation around the owner-side
+delegation path.
 
-- deserializing `PlanetState` directly from raw account data
-- narrowing the borrow scope before invoking the CPI
+## Step 4: Lower-Friction Authorization
 
-## Step 4: Session Authorization
+Delegation alone did not remove wallet friction, because gameplay instructions
+still needed repeated user signatures.
 
-Delegation alone did not remove wallet popups, because gameplay instructions
-still required `authority: Signer`.
+The authorization model then evolved toward lower-friction gameplay through:
 
-The next change was adding session-authorized instruction variants:
+- wallet-authorized setup and recovery paths
+- vault-authorized gameplay paths tied to `AuthorizedVault`
+- encrypted vault backup support
+- dedicated game config for the global ANTIMATTER mint
 
-- `*_session` gameplay instructions
-- external GPL session token validation
-- checks that the token authority, target program, signer, and expiry all match
+This gave the product a more practical path for real game usage without
+requiring constant wallet popups.
 
-This is what makes burner/session-driven ER gameplay possible in the unified
-model.
+## Step 5: ANTIMATTER Utility
 
-## Result
+With the core state model in place, ANTIMATTER was introduced as a first-class
+game economy asset:
 
-The repo is now being cleaned up around one gameplay owner program:
+- queue acceleration for buildings
+- queue acceleration for research
+- queue acceleration for ship production
 
-- `game-state`
-- unified IDL
-- delegation built into the owner program
-- explicit commit support
-- session-authorized gameplay path
+This added a premium acceleration surface directly into `game-state` instead of
+layering it on top of fragmented component logic.
+
+## Step 6: Dedicated Market Program
+
+Once the unified gameplay state was stable enough, a separate `programs/market`
+was introduced for player-to-player trading.
+
+The current marketplace model is:
+
+- offers are created against a seller-selected planet
+- the listed resources are locked on offer creation through `game-state`
+- cancelling the offer refunds those locked resources
+- accepting the offer moves ANTIMATTER from buyer to seller, burns the market
+  fee, and credits the resources to the buyer planet
+
+This split keeps gameplay state authoritative in `game-state` while allowing
+the market to focus on listing, pricing, payment, and settlement orchestration.
+
+## Current Result
+
+The active architecture is now:
+
+- `game-state` as the gameplay source of truth
+- `market` as the dedicated player economy surface
+- unified IDLs for both active programs
+- explicit support for delegated execution and commit flow
+- lower-friction vault-based gameplay authorization
+- ANTIMATTER integrated into both acceleration and marketplace payment flows
 
 The old BOLT/component architecture is kept only as historical context or local
 archive material, not as the active production shape.
 
 ## Guidance For New Developers
 
-- treat `game-state` as the source of truth
+- treat `game-state` as the source of truth for progression and per-planet state
+- treat `market` as a settlement layer that must stay aligned with the deployed
+  `game-state` program ID
 - do not build new features on top of the old component/system layout
 - read `README.md` first, then `docs/game-state-program.md`
 - use `docs/unified-state-architecture.md` for the design rationale behind the

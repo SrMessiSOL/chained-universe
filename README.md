@@ -1,38 +1,60 @@
-# Chained Universe
+# Chained Universe / SolarGrid
 
-Chained Universe is a Solana + Anchor backend for a space strategy MMO. The
-repository now centers on a single gameplay owner program,
-[`programs/game-state`](programs/game-state), which replaces the older split
-BOLT component/system architecture.
+Chained Universe is a Solana + Anchor backend for a space strategy MMO. The project has moved away from the older split BOLT ECS model and now centers on a unified gameplay owner program plus a dedicated player market program.
 
 ## Current Architecture
 
-The active on-chain program is:
+The active on-chain programs are:
 
-- `game-state`: unified planet, economy, fleet, research, mission, delegation,
-  commit, and session-authorized gameplay logic
+- `game-state`: unified gameplay owner for planets, resources, fleets,
+  research, missions, authorization, commit flow, and ANTIMATTER-powered queue
+  acceleration
+- `market`: player-to-player resource marketplace that settles against
+  `game-state` and uses ANTIMATTER as the payment asset
 
 Core concepts in the current model:
 
 - `PlayerProfile` tracks wallet ownership and colony count
-- `PlanetState` is the main per-planet gameplay PDA
-- gameplay supports both wallet-authorized instructions and `*_session`
-  instructions for burner/session execution on ER
-- explicit commit helpers are built into the owner program, so delegated state
-  can be committed without relying on the old multi-program BOLT flow
+- `PlanetState` is the main per-planet gameplay PDA and source of truth for
+  progression
+- `AuthorizedVault` lets gameplay run through a wallet-approved vault signer
+  without requiring constant wallet popups
+- `GameConfig` stores the global ANTIMATTER mint used for queue acceleration
+- `MarketOffer` stores resource listings that lock resources at offer creation,
+  refund them on cancellation, and deliver them on purchase
+
+## Product Surface
+
+The current gameplay and economy flow covers:
+
+- player initialization
+- homeworld and colony creation
+- resource settlement
+- building queues
+- research queues
+- ship construction
+- fleet launch
+- transport resolution
+- colonization resolution
+- player-authorized vault flow for lower-friction gameplay
+- delegated execution and explicit commit support
+- ANTIMATTER acceleration for building, research, and ship production
+- peer-to-peer resource trading through the marketplace
 
 ## Repository Layout
 
 - [`programs/game-state`](programs/game-state):
   unified gameplay program
+- [`programs/market`](programs/market):
+  marketplace program
 - [`docs/game-state-program.md`](docs/game-state-program.md):
-  program reference
+  game-state program reference
 - [`docs/unified-state-architecture.md`](docs/unified-state-architecture.md):
-  technical design rationale
+  technical design rationale for the unified owner model
 - [`docs/migration-history.md`](docs/migration-history.md):
-  migration story from BOLT components to unified state
+  migration story from BOLT components to the current architecture
 - [`Anchor.toml`](Anchor.toml):
-  streamlined Anchor config
+  Anchor workspace config
 - [`Cargo.toml`](Cargo.toml):
   Rust workspace config
 
@@ -56,48 +78,57 @@ Build only the gameplay program:
 anchor build --program-name game_state
 ```
 
+Build only the market program:
+
+```bash
+anchor build --program-name market
+```
+
 ## Deploy
 
-Example devnet flow:
+Example deploy flow:
 
 ```bash
 anchor deploy --program-name game_state
+anchor deploy --program-name market
 ```
 
-After deploying, regenerate and distribute the IDL from
-[`target/idl/game_state.json`](target/idl/game_state.json).
+After deploying:
 
-## Gameplay Surface
+- regenerate and distribute [`target/idl/game_state.json`](target/idl/game_state.json)
+- regenerate and distribute [`target/idl/market.json`](target/idl/market.json)
+- keep client constants and deployed program IDs aligned across both programs
 
-The current instruction set covers:
+## Gameplay Notes
 
-- player initialization
-- homeworld and colony creation
-- resource settlement
-- build queue start/finish
-- research queue start/finish
-- ship construction
-- fleet launch
-- transport resolution
-- colonize resolution
-- delegation
-- explicit commit / commit-and-undelegate flows
-- session-authorized gameplay variants for ER execution
+- `game-state` is the source of truth for player progression and per-planet
+  state
+- the vault-signed path is the main low-friction gameplay path in the current
+  architecture
+- explicit commit helpers remain built into the owner program for delegated
+  execution support
+- ANTIMATTER is used as both a queue-acceleration asset and the market payment
+  asset
 
-## Session and Delegation Notes
+## Market Notes
 
-- `delegate` enables owner-program delegation for `PlanetState`
-- `commit_planet_state` and `commit_two_planet_states` commit delegated state
-- `*_session` instructions validate an external GPL session token so gameplay
-  can be authorized by a burner/session signer instead of the wallet
+- sellers create offers against a selected planet
+- resource amounts are locked on the seller planet when an offer is created
+- cancelling an offer refunds the locked resources to the seller planet
+- accepting an offer transfers ANTIMATTER from buyer to seller, burns the
+  configured fee, and credits the purchased resources to the buyer planet
+- the market program is intentionally coupled to the deployed `game-state`
+  program ID, so redeploys must keep those constants synchronized
 
 ## Migration Context
 
-This repository used to be organized around many BOLT ECS components and
-systems. That design was useful early on, but it made explicit owner-side
-commits difficult once gameplay moved to delegated execution. The unified
-`game-state` program was introduced to solve that by bringing all gameplay
-state that must commit together under one owner program.
+This repository originally used many BOLT ECS components and systems. That
+model worked early on, but it made explicit owner-side commits difficult once
+gameplay moved toward delegated execution and more complex multi-surface state.
+The unified `game-state` program solved that by bringing the gameplay state
+that must commit together under a single owner, and the `market` program was
+added later as a dedicated economy surface that settles directly against that
+state.
 
 For the technical reasoning and migration path:
 
@@ -111,5 +142,6 @@ Start here:
 1. Read this `README`
 2. Read [`docs/game-state-program.md`](docs/game-state-program.md)
 3. Read [`docs/migration-history.md`](docs/migration-history.md)
-4. Build the program and inspect the generated IDL
-5. Update clients against `game_state.json`, not the old component/system IDLs
+4. Build the workspace and inspect the generated IDLs
+5. Update clients against `game_state.json` and `market.json`, not the old
+   component/system IDLs

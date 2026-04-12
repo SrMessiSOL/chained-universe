@@ -1,0 +1,7 @@
+interface:
+  display_name: "Solana New"
+  short_description: "Idea-to-launch Solana builder workflow"
+  default_prompt: "Use $solana-new to help me go from idea to launch on Solana."
+
+policy:
+  allow_implicit_invocation: true
