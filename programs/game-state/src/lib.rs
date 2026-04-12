@@ -97,8 +97,12 @@
         (m.saturating_mul(mult), c.saturating_mul(mult), d.saturating_mul(mult))
     }
 
-    fn research_seconds(next_level: u8, lab_level: u8) -> i64 {
-        ((next_level as u64 * 1800) / (lab_level.max(1) as u64)).max(1) as i64
+    fn research_seconds(next_level: u8, lab_level: u8, igr_network: u8) -> i64 {
+        let speed_bonus = 100u64.saturating_add(igr_network as u64 * 10);
+        let effective_lab = (lab_level.max(1) as u64)
+            .saturating_mul(speed_bonus)
+            / 100;
+        ((next_level as u64 * 1800) / effective_lab.max(1)).max(1) as i64
     }
 
     fn ship_build_seconds(ship_type: u8, quantity: u32, shipyard: u8, nanite: u8) -> i64 {
@@ -183,6 +187,14 @@
         planet.last_update_ts = now;
     }
 
+    fn research_flight_bonus_pct(planet: &PlanetState) -> u64 {
+        100u64
+            .saturating_add(planet.combustion_drive as u64 * 5)
+            .saturating_add(planet.impulse_drive as u64 * 10)
+            .saturating_add(planet.hyperspace_drive as u64 * 15)
+            .saturating_add(planet.computer_tech as u64 * 3)
+    }
+
     fn recalculate_rates(planet: &mut PlanetState) {
         planet.metal_hour = mine_rate(planet.metal_mine, 30);
         planet.crystal_hour = mine_rate(planet.crystal_mine, 20);
@@ -198,7 +210,8 @@
         let fusion_prod = if planet.fusion_reactor == 0 {
             0
         } else {
-            mine_rate(planet.fusion_reactor, 30) * 180 / 100
+            let base = mine_rate(planet.fusion_reactor, 30) * 180 / 100;
+            base.saturating_mul(100 + planet.energy_tech as u64 * 10) / 100
         };
 
         planet.energy_production = solar_prod + fusion_prod;
@@ -495,7 +508,7 @@
 
         planet.research_queue_item = tech_idx;
         planet.research_queue_target = next;
-        planet.research_finish_ts = now + research_seconds(next, planet.research_lab);
+        planet.research_finish_ts = now + research_seconds(next, planet.research_lab, planet.igr_network);
         Ok(())
     }
 
@@ -506,6 +519,7 @@
         let idx = planet.research_queue_item;
         let target = planet.research_queue_target;
         planet.set_research_level(idx, target);
+        recalculate_rates(planet);
 
         planet.research_queue_item = 255;
         planet.research_queue_target = 0;
@@ -537,9 +551,10 @@
         return (from_position as i64 - to_position as i64).abs() as u64 * 200 + 1_000;
     }
 
-    fn mission_flight_seconds(distance: u64, speed_factor: u8) -> i64 {
+    fn mission_flight_seconds(distance: u64, speed_factor: u8, planet: &PlanetState) -> i64 {
         let sf = speed_factor.clamp(10, 100) as u64;
-        ((distance * 100) / sf).max(1) as i64
+        let tech_bonus = research_flight_bonus_pct(planet);
+        ((distance * 100) / sf).saturating_mul(100).checked_div(tech_bonus.max(100)).unwrap_or(1).max(1) as i64
     }
 
 
@@ -795,7 +810,7 @@
             params.target_position,
         );
 
-        let flight_seconds = mission_flight_seconds(dist, speed_factor);
+        let flight_seconds = mission_flight_seconds(dist, speed_factor, planet);
         require!(flight_seconds > 0, GameStateError::InvalidArgs);
 
         let launch_fuel = launch_fuel_cost(
