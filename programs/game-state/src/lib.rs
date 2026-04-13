@@ -21,7 +21,7 @@
         139, 237, 101, 230, 54, 199, 209, 132, 25, 2, 106, 137, 247, 197, 199, 242,
     ]);
 
-    // =============================================
+    // =============================================    
     // Helper Functions
     // =============================================
 
@@ -141,6 +141,49 @@
         Ok(())
     }
 
+    fn enforce_building_requirements(building_idx: u8, planet: &PlanetState) -> Result<()> {
+        match building_idx {
+            4 => require!(
+                planet.deuterium_synthesizer >= 5 && planet.energy_tech >= 3,
+                GameStateError::TechLocked
+            ),
+            6 => require!(
+                planet.robotics_factory >= 10 && planet.computer_tech >= 10,
+                GameStateError::TechLocked
+            ),
+            7 => require!(planet.robotics_factory >= 2, GameStateError::TechLocked),
+            12 => require!(planet.shipyard >= 1, GameStateError::TechLocked),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn enforce_research_requirements(tech_idx: u8, planet: &PlanetState) -> Result<()> {
+        match tech_idx {
+            0 => require!(planet.research_lab >= 1, GameStateError::TechLocked),
+            1 => require!(
+                planet.research_lab >= 1 && planet.energy_tech >= 1,
+                GameStateError::TechLocked
+            ),
+            2 => require!(
+                planet.research_lab >= 2 && planet.energy_tech >= 1,
+                GameStateError::TechLocked
+            ),
+            3 => require!(planet.research_lab >= 7, GameStateError::TechLocked),
+            4 => require!(planet.research_lab >= 1, GameStateError::TechLocked),
+            5 => require!(
+                planet.research_lab >= 3 && planet.impulse_drive >= 3,
+                GameStateError::TechLocked
+            ),
+            6 => require!(
+                planet.research_lab >= 10 && planet.computer_tech >= 8,
+                GameStateError::TechLocked
+            ),
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn cargo_capacity(sc: u32, lc: u32, rec: u32, cr: u32, bs: u32) -> u64 {
         sc as u64 * 5_000 + lc as u64 * 25_000 + rec as u64 * 20_000 + cr as u64 * 800 + bs as u64 * 1_500
     }
@@ -187,12 +230,42 @@
         planet.last_update_ts = now;
     }
 
-    fn research_flight_bonus_pct(planet: &PlanetState) -> u64 {
-        100u64
-            .saturating_add(planet.combustion_drive as u64 * 5)
-            .saturating_add(planet.impulse_drive as u64 * 10)
-            .saturating_add(planet.hyperspace_drive as u64 * 15)
-            .saturating_add(planet.computer_tech as u64 * 3)
+    fn research_flight_bonus_pct(
+        from_galaxy: u16,
+        from_system: u16,
+        to_galaxy: u16,
+        to_system: u16,
+        planet: &PlanetState,
+    ) -> u64 {
+        let mut bonus = 100u64;
+
+        if from_galaxy == to_galaxy && from_system == to_system {
+            return bonus.saturating_add(planet.combustion_drive as u64 * 5);
+        }
+
+        if from_galaxy == to_galaxy {
+            bonus = bonus.saturating_add(planet.impulse_drive as u64 * 10);
+
+            if planet.hyperspace_drive >= 1 {
+                bonus = bonus.saturating_add(planet.hyperspace_drive as u64 * 5);
+            }
+
+            if planet.astrophysics >= 1 {
+                bonus = bonus.saturating_add(planet.astrophysics as u64 * 3);
+            }
+
+            return bonus;
+        }
+
+        if planet.hyperspace_drive >= 3 {
+            bonus = bonus.saturating_add(planet.hyperspace_drive as u64 * 15);
+        }
+
+        if planet.astrophysics >= 4 {
+            bonus = bonus.saturating_add(planet.astrophysics as u64 * 10);
+        }
+
+        bonus
     }
 
     fn recalculate_rates(planet: &mut PlanetState) {
@@ -464,6 +537,7 @@
 
         require!(planet.build_finish_ts == 0 || now >= planet.build_finish_ts, GameStateError::QueueBusy);
         require!(planet.used_fields < planet.max_fields, GameStateError::NoFields);
+        enforce_building_requirements(building_idx, planet)?;
         require!(planet.metal >= cm, GameStateError::InsufficientMetal);
         require!(planet.crystal >= cc, GameStateError::InsufficientCrystal);
         require!(planet.deuterium >= cd, GameStateError::InsufficientDeuterium);
@@ -493,6 +567,7 @@
 
         let lab_req = research_lab_requirement(tech_idx);
         require!(planet.research_lab >= lab_req, GameStateError::LabTooLow);
+        enforce_research_requirements(tech_idx, planet)?;
 
         let current = planet.research_level(tech_idx);
         let next = current.saturating_add(1);
@@ -551,10 +626,32 @@
         return (from_position as i64 - to_position as i64).abs() as u64 * 200 + 1_000;
     }
 
-    fn mission_flight_seconds(distance: u64, speed_factor: u8, planet: &PlanetState) -> i64 {
+    fn mission_flight_seconds(
+        from_galaxy: u16,
+        from_system: u16,
+        from_position: u8,
+        to_galaxy: u16,
+        to_system: u16,
+        to_position: u8,
+        speed_factor: u8,
+        planet: &PlanetState,
+    ) -> i64 {
         let sf = speed_factor.clamp(10, 100) as u64;
-        let tech_bonus = research_flight_bonus_pct(planet);
-        ((distance * 100) / sf).saturating_mul(100).checked_div(tech_bonus.max(100)).unwrap_or(1).max(1) as i64
+        let dist = distance(
+            from_galaxy,
+            from_system,
+            from_position,
+            to_galaxy,
+            to_system,
+            to_position,
+        );
+        let tech_bonus =
+            research_flight_bonus_pct(from_galaxy, from_system, to_galaxy, to_system, planet);
+        ((dist * 100) / sf)
+            .saturating_mul(100)
+            .checked_div(tech_bonus.max(100))
+            .unwrap_or(1)
+            .max(1) as i64
     }
 
 
@@ -801,16 +898,16 @@
 
         let speed_factor = params.speed_factor.clamp(10, 100);
 
-        let dist = distance(
+        let flight_seconds = mission_flight_seconds(
             planet.galaxy,
             planet.system,
             planet.position,
             params.target_galaxy,
             params.target_system,
             params.target_position,
+            speed_factor,
+            planet,
         );
-
-        let flight_seconds = mission_flight_seconds(dist, speed_factor, planet);
         require!(flight_seconds > 0, GameStateError::InvalidArgs);
 
         let launch_fuel = launch_fuel_cost(
@@ -855,11 +952,7 @@
 
         let arrive_ts = params.now.saturating_add(flight_seconds);
 
-        let return_ts = if params.mission_type == MISSION_TRANSPORT {
-            arrive_ts.saturating_add(flight_seconds)
-        } else {
-            0
-        };
+        let return_ts = 0;
 
         planet.set_mission(slot, MissionState {
             mission_type: params.mission_type,
@@ -967,9 +1060,12 @@
 
             source.deuterium -= return_fuel;
 
+            let return_flight_seconds = mission.arrive_ts.saturating_sub(mission.depart_ts).max(1);
+
             source.missions[slot].cargo_metal = 0;
             source.missions[slot].cargo_crystal = 0;
             source.missions[slot].cargo_deuterium = 0;
+            source.missions[slot].return_ts = now.saturating_add(return_flight_seconds);
             source.set_mission_applied(slot, true);
 
             return Ok(());
@@ -981,6 +1077,61 @@
         );
 
         source.return_mission_ships_only(slot);
+        source.clear_mission(slot);
+        source.active_missions = source.active_missions.saturating_sub(1);
+        Ok(())
+    }
+
+    fn resolve_transport_empty_slot(
+        source: &mut PlanetState,
+        slot: usize,
+        now: i64,
+    ) -> Result<()> {
+        require!(slot < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+
+        let mission = source.mission(slot);
+        require!(mission.mission_type == MISSION_TRANSPORT, GameStateError::InvalidMission);
+
+        if !mission.applied {
+            require!(now >= mission.arrive_ts, GameStateError::MissionInFlight);
+
+            settle_resources(source, now);
+
+            let return_fuel = launch_fuel_cost(
+                mission.light_fighter,
+                mission.heavy_fighter,
+                mission.cruiser,
+                mission.battleship,
+                mission.battlecruiser,
+                mission.bomber,
+                mission.destroyer,
+                mission.deathstar,
+                mission.small_cargo,
+                mission.large_cargo,
+                mission.recycler,
+                mission.espionage_probe,
+                mission.colony_ship,
+                mission.speed_factor,
+            );
+
+            require!(source.deuterium >= return_fuel, GameStateError::InsufficientDeuterium);
+            source.deuterium -= return_fuel;
+
+            let return_flight_seconds = mission.arrive_ts.saturating_sub(mission.depart_ts).max(1);
+
+            source.missions[slot].return_ts = now.saturating_add(return_flight_seconds);
+            source.set_mission_applied(slot, true);
+
+            return Ok(());
+        }
+
+        require!(
+            mission.return_ts > 0 && now >= mission.return_ts,
+            GameStateError::ReturnInFlight
+        );
+
+        settle_resources(source, now);
+        source.return_mission_assets(slot);
         source.clear_mission(slot);
         source.active_missions = source.active_missions.saturating_sub(1);
         Ok(())
@@ -1425,7 +1576,7 @@
             resolve_transport_planets(&mut ctx.accounts.source_planet, &mut ctx.accounts.destination_planet, slot as usize, now)
         }
 
-    pub fn resolve_transport_vault(ctx: Context<ResolveTransportVault>, slot: u8, now: i64) -> Result<()> {
+        pub fn resolve_transport_vault(ctx: Context<ResolveTransportVault>, slot: u8, now: i64) -> Result<()> {
         msg!("resolve_transport_vault: entered");
         msg!("resolve_transport_vault: slot={}", slot);
         require_active_vault(
@@ -1436,6 +1587,19 @@
         msg!("resolve_transport_vault: vault ok");
         resolve_transport_planets(&mut ctx.accounts.source_planet, &mut ctx.accounts.destination_planet, slot as usize, now)
     }
+
+        pub fn resolve_transport_empty(ctx: Context<MutatePlanetState>, slot: u8, now: i64) -> Result<()> {
+            resolve_transport_empty_slot(&mut ctx.accounts.planet_state, slot as usize, now)
+        }
+
+        pub fn resolve_transport_empty_vault(ctx: Context<MutatePlanetStateVault>, slot: u8, now: i64) -> Result<()> {
+            require_active_vault(
+                ctx.accounts.vault_signer.key(),
+                &ctx.accounts.authorized_vault,
+                ctx.accounts.planet_state.authority
+            )?;
+            resolve_transport_empty_slot(&mut ctx.accounts.planet_state, slot as usize, now)
+        }
 
         /// Wallet-signed: resolve a colonize mission.
         /// The colony planet + coord lock must already exist (created by `initialize_colony`).
