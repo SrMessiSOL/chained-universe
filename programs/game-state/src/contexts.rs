@@ -149,6 +149,54 @@ pub struct InitializePlanetVault<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializePublicPlanetVault<'info> {
+    #[account(mut)]
+    pub vault_signer: Signer<'info>,
+    /// CHECK: authority is read from player_profile.authority and only used as a seed/reference.
+    pub authority: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump = authorized_vault.bump,
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+    #[account(
+        mut,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Account<'info, PlayerProfile>,
+    #[account(
+        init,
+        payer = vault_signer,
+        space = PUBLIC_PLANET_STATE_SPACE,
+        seeds = [b"public_planet_v2", authority.key().as_ref(), &player_profile.planet_count.to_le_bytes()],
+        bump
+    )]
+    pub public_planet_state: Account<'info, PublicPlanetState>,
+    /// CHECK: verified and initialized manually inside the V2 public planet handler.
+    #[account(mut)]
+    pub public_planet_coords: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SyncPublicPlanetView<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub planet_state: Account<'info, PlanetState>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = PUBLIC_PLANET_STATE_SPACE,
+        seeds = [b"public_planet", planet_state.key().as_ref()],
+        bump
+    )]
+    pub public_planet_state: Account<'info, PublicPlanetState>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct MutatePlanetState<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,

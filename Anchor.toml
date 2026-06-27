@@ -9,7 +9,17 @@ skip-lint = false
 cluster = "devnet"
 wallet = "~/.config/solana/devnet.json"
 
+[programs.devnet]
+game_state = "HheELu8GJ7EAw7afAxinmJLEnzQK7gAMBWYqDUXtec2S"
+market = "ESjW56VLfUfvjgWmAMtQnhgyEpo8esQZQh2meRVNg1gA"
+private_state = "HHF3gZKAGLL5GB633tz9U8aGT8HxAaPnSi2YZpgF7d4K"
+
 [workspace]
+members = [
+    "programs/game-state",
+    "programs/market",
+    "programs/private-state",
+]
 
 [scripts]
 test = "echo No workspace tests are currently configured for the game-state-only repo."

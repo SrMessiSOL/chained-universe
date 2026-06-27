@@ -2,7 +2,8 @@
 [workspace]
 members = [
     "programs/game-state",
-        "programs/market",
+    "programs/market",
+    "programs/private-state",
 
 ]
 resolver = "2"

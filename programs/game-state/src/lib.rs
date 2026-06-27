@@ -1,17 +1,18 @@
 use anchor_lang::prelude::*;
-pub mod contexts;
 pub mod constants;
+pub mod contexts;
 pub mod error;
 pub mod instructions;
 pub mod state;
+pub mod token;
 pub mod utils;
 
-use contexts::*;
 pub use constants::*;
+use contexts::*;
 pub use error::*;
 pub use state::*;
 
-declare_id!("7yKyjQ7m8tSqvqYnV65aVV9Jwdee7KqyELeDXf6Fxkt4");
+declare_id!("HheELu8GJ7EAw7afAxinmJLEnzQK7gAMBWYqDUXtec2S");
 
 #[program]
 pub mod game_state {
@@ -83,6 +84,107 @@ pub mod game_state {
         instructions::initialize_colony(ctx, params)
     }
 
+    pub fn initialize_public_homeworld(
+        ctx: Context<InitializePublicPlanetVault>,
+        params: InitializeHomeworldParams,
+    ) -> Result<()> {
+        instructions::initialize_public_homeworld(ctx, params)
+    }
+
+    pub fn initialize_public_colony(
+        ctx: Context<InitializePublicPlanetVault>,
+        params: InitializeColonyParams,
+    ) -> Result<()> {
+        instructions::initialize_public_colony(ctx, params)
+    }
+
+    pub fn sync_public_planet_view(ctx: Context<SyncPublicPlanetView>) -> Result<()> {
+        instructions::sync_public_planet_view(ctx)
+    }
+
+    pub fn initialize_quest_state(ctx: Context<InitializeQuestState>) -> Result<()> {
+        instructions::initialize_quest_state(ctx)
+    }
+
+    pub fn initialize_store_config(
+        ctx: Context<InitializeStoreConfig>,
+        enabled: bool,
+    ) -> Result<()> {
+        instructions::initialize_store_config(ctx, enabled)
+    }
+
+    pub fn update_store_config(ctx: Context<UpdateStoreConfig>, enabled: bool) -> Result<()> {
+        instructions::update_store_config(ctx, enabled)
+    }
+
+    pub fn purchase_store_pack(
+        ctx: Context<PurchaseStorePack>,
+        period: u8,
+        pack_id: u8,
+    ) -> Result<()> {
+        instructions::purchase_store_pack(ctx, period, pack_id)
+    }
+
+    pub fn daily_check_in(ctx: Context<QuestAction>) -> Result<()> {
+        instructions::daily_check_in(ctx)
+    }
+
+    pub fn daily_check_in_vault(ctx: Context<QuestActionVault>) -> Result<()> {
+        instructions::daily_check_in_vault(ctx)
+    }
+
+    pub fn claim_quest(ctx: Context<QuestAction>, period: u8, quest_id: u8) -> Result<()> {
+        instructions::claim_quest(ctx, period, quest_id)
+    }
+
+    pub fn claim_quest_vault(
+        ctx: Context<QuestActionVault>,
+        period: u8,
+        quest_id: u8,
+    ) -> Result<()> {
+        instructions::claim_quest_vault(ctx, period, quest_id)
+    }
+
+    pub fn create_alliance(ctx: Context<CreateAlliance>, name: String) -> Result<()> {
+        instructions::create_alliance(ctx, name)
+    }
+
+    pub fn join_alliance(ctx: Context<JoinAlliance>) -> Result<()> {
+        instructions::join_alliance(ctx)
+    }
+
+    pub fn request_join_alliance(ctx: Context<RequestJoinAlliance>) -> Result<()> {
+        instructions::request_join_alliance(ctx)
+    }
+
+    pub fn approve_join_request(ctx: Context<ApproveJoinRequest>) -> Result<()> {
+        instructions::approve_join_request(ctx)
+    }
+
+    pub fn reject_join_request(ctx: Context<RejectJoinRequest>) -> Result<()> {
+        instructions::reject_join_request(ctx)
+    }
+
+    pub fn expel_alliance_member(ctx: Context<ExpelAllianceMember>) -> Result<()> {
+        instructions::expel_alliance_member(ctx)
+    }
+
+    pub fn transfer_alliance_leadership(ctx: Context<TransferAllianceLeadership>) -> Result<()> {
+        instructions::transfer_alliance_leadership(ctx)
+    }
+
+    pub fn leave_alliance(ctx: Context<LeaveAlliance>) -> Result<()> {
+        instructions::leave_alliance(ctx)
+    }
+
+    pub fn claim_alliance_mission(
+        ctx: Context<AllianceMissionAction>,
+        period: u8,
+        mission_id: u8,
+    ) -> Result<()> {
+        instructions::claim_alliance_mission(ctx, period, mission_id)
+    }
+
     pub fn produce(ctx: Context<MutatePlanetState>, now: i64) -> Result<()> {
         instructions::produce(ctx, now)
     }
@@ -127,10 +229,7 @@ pub mod game_state {
         instructions::finish_research(ctx, now)
     }
 
-    pub fn finish_research_vault(
-        ctx: Context<MutatePlanetStateVault>,
-        now: i64,
-    ) -> Result<()> {
+    pub fn finish_research_vault(ctx: Context<MutatePlanetStateVault>, now: i64) -> Result<()> {
         instructions::finish_research_vault(ctx, now)
     }
 
@@ -156,11 +255,37 @@ pub mod game_state {
         instructions::finish_ship_build(ctx, now)
     }
 
-    pub fn finish_ship_build_vault(
+    pub fn finish_ship_build_vault(ctx: Context<MutatePlanetStateVault>, now: i64) -> Result<()> {
+        instructions::finish_ship_build_vault(ctx, now)
+    }
+
+    pub fn build_defense(
+        ctx: Context<MutatePlanetState>,
+        defense_type: u8,
+        quantity: u32,
+        now: i64,
+    ) -> Result<()> {
+        instructions::build_defense(ctx, defense_type, quantity, now)
+    }
+
+    pub fn build_defense_vault(
+        ctx: Context<MutatePlanetStateVault>,
+        defense_type: u8,
+        quantity: u32,
+        now: i64,
+    ) -> Result<()> {
+        instructions::build_defense_vault(ctx, defense_type, quantity, now)
+    }
+
+    pub fn finish_defense_build(ctx: Context<MutatePlanetState>, now: i64) -> Result<()> {
+        instructions::finish_defense_build(ctx, now)
+    }
+
+    pub fn finish_defense_build_vault(
         ctx: Context<MutatePlanetStateVault>,
         now: i64,
     ) -> Result<()> {
-        instructions::finish_ship_build_vault(ctx, now)
+        instructions::finish_defense_build_vault(ctx, now)
     }
 
     pub fn launch_fleet(ctx: Context<MutatePlanetState>, params: LaunchFleetParams) -> Result<()> {
@@ -226,6 +351,30 @@ pub mod game_state {
         instructions::resolve_transport_empty_vault(ctx, slot, now)
     }
 
+    pub fn resolve_attack(ctx: Context<ResolveAttack>, slot: u8, now: i64) -> Result<()> {
+        instructions::resolve_attack(ctx, slot, now)
+    }
+
+    pub fn resolve_attack_vault(
+        ctx: Context<ResolveAttackVault>,
+        slot: u8,
+        now: i64,
+    ) -> Result<()> {
+        instructions::resolve_attack_vault(ctx, slot, now)
+    }
+
+    pub fn resolve_espionage(ctx: Context<ResolveAttack>, slot: u8, now: i64) -> Result<()> {
+        instructions::resolve_espionage(ctx, slot, now)
+    }
+
+    pub fn resolve_espionage_vault(
+        ctx: Context<ResolveAttackVault>,
+        slot: u8,
+        now: i64,
+    ) -> Result<()> {
+        instructions::resolve_espionage_vault(ctx, slot, now)
+    }
+
     pub fn resolve_colonize(ctx: Context<ResolveColonize>, slot: u8, now: i64) -> Result<()> {
         instructions::resolve_colonize(ctx, slot, now)
     }
@@ -266,5 +415,13 @@ pub mod game_state {
 
     pub fn accelerate_ship_build_with_antimatter(ctx: Context<UseAntimatter>) -> Result<()> {
         instructions::accelerate_ship_build_with_antimatter(ctx)
+    }
+
+    pub fn accelerate_mission_with_antimatter(
+        ctx: Context<UseAntimatter>,
+        slot: u8,
+        leg: u8,
+    ) -> Result<()> {
+        instructions::accelerate_mission_with_antimatter(ctx, slot, leg)
     }
 }
