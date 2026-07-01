@@ -22,8 +22,10 @@ pub struct CreateOffer<'info> {
     pub seller_counter: Account<'info, SellerCounter>,
     #[account(init, payer = seller, space = OFFER_ACCOUNT_SPACE, seeds = [b"market_offer", seller.key().as_ref(), &seller_counter.next_offer_id.to_le_bytes()], bump)]
     pub offer: Account<'info, MarketOffer>,
+    /// CHECK: Constrained to the configured game-state program id; used as CPI target only.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
+    /// CHECK: Constrained to be owned by game-state; market only forwards it to game-state CPI.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
@@ -37,10 +39,13 @@ pub struct CancelOffer<'info> {
     pub offer: Account<'info, MarketOffer>,
     #[account(mut, seeds = [b"seller_counter", seller.key().as_ref()], bump = seller_counter.bump)]
     pub seller_counter: Account<'info, SellerCounter>,
+    /// CHECK: Constrained to the configured game-state program id; used as CPI target only.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
+    /// CHECK: Constrained to the offer seller planet and owned by game-state; forwarded to game-state CPI.
     #[account(mut, address = offer.seller_planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
+    /// CHECK: PDA authority derived from the fixed `market_authority` seed; signs CPI via program seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_authority: UncheckedAccount<'info>,
 }
@@ -79,18 +84,22 @@ pub struct AcceptOffer<'info> {
     #[account(mut, seeds = [b"market_escrow"], bump, token::mint = antimatter_mint, token::authority = market_escrow_authority)]
     pub market_escrow: Account<'info, TokenAccount>,
 
+    /// CHECK: PDA authority derived from the fixed `market_authority` seed; signs escrow transfers via program seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_escrow_authority: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 
+    /// CHECK: Constrained to the configured game-state program id; used as CPI target only.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
 
+    /// CHECK: Constrained to the offer seller planet and owned by game-state; forwarded to game-state CPI.
     #[account(mut, address = offer.seller_planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
 
+    /// CHECK: Constrained to be owned by game-state; market only forwards it to game-state CPI.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub buyer_planet: UncheckedAccount<'info>,
 }
