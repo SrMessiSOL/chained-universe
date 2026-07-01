@@ -11,7 +11,7 @@ pub use constants::*;
 pub use error::*;
 pub use state::*;
 
-declare_id!("7yKyjQ7m8tSqvqYnV65aVV9Jwdee7KqyELeDXf6Fxkt4");
+declare_id!("FJGxh6SKgNoTVzHj98oBsC2oaEy8ovadVJf8rDUNaEHb");
 
 #[program]
 pub mod game_state {

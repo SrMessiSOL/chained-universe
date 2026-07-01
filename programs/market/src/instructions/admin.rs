@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
-use crate::constants::{MARKET_CONFIG_SPACE, GAME_STATE_PROGRAM_ID};
+use crate::constants::MARKET_CONFIG_SPACE;
 use crate::error::MarketError;
 use crate::state::MarketConfig;
 

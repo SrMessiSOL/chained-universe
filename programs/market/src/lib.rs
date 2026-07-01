@@ -13,7 +13,7 @@ pub use error::*;
 pub use state::*;
 pub use types::*;
 
-declare_id!("E6ubJUSv2eqJE93HHma7WAiMrikkUxkBmEkqELvVb8j3");
+declare_id!("Dow7f1UqLGKyvs1D2uNR5c6bmAdnKRy2ZDtnsa4UhApp");
 
 #[program]
 pub mod market {

@@ -16,6 +16,6 @@ pub const AUTHORIZED_VAULT_SPACE: usize = 8 + AuthorizedVault::INIT_SPACE;
 pub const VAULT_BACKUP_SPACE: usize = 8 + VaultBackup::INIT_SPACE;
 pub const GAME_CONFIG_SPACE: usize = 8 + GameConfig::INIT_SPACE;
 pub const MARKET_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    194, 171, 76, 163, 210, 137, 5, 66, 103, 236, 205, 120, 111, 87, 59, 250,
-    139, 237, 101, 230, 54, 199, 209, 132, 25, 2, 106, 137, 247, 197, 199, 242,
+    190, 82, 37, 232, 28, 50, 248, 91, 61, 49, 15, 43, 213, 115, 237, 81,
+    239, 139, 230, 221, 59, 251, 31, 76, 160, 16, 0, 153, 247, 21, 15, 41,
 ]);
