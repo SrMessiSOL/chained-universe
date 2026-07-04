@@ -1,15 +1,14 @@
 # Game-State Program
 
-`game-state` is the unified gameplay owner program for Chained Universe.
+`game-state` is the gameplay owner program for Chained Universe.
 
-It replaces the old split BOLT component/system model with one owner program
-that can:
+It keeps the core game state under one program so gameplay instructions can:
 
 - own the persistent gameplay state directly
-- support delegated execution on MagicBlock / ER
-- explicitly commit delegated state back to base layer
-- authorize gameplay with the wallet, a validated session signer, or a
-  game-managed burner authorization
+- authorize gameplay with the wallet or a validated vault signer
+- coordinate planets, quests, alliances, store purchases, and missions through
+  one account model
+- keep market settlement and gameplay balances in sync
 
 ## Main Accounts
 
@@ -223,7 +222,7 @@ delegation, which is why the program now exposes a real `delegate` instruction.
 
 ## Why This Program Exists
 
-The earlier architecture split gameplay state across several BOLT components:
+The current program owns the gameplay state that matters for production:
 
 - planet
 - resources

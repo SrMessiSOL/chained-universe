@@ -1,62 +1,40 @@
-# Chained Universe / SolarGrid
+# Chained Universe Backend
 
-Chained Universe is a Solana + Anchor backend for a space strategy MMO. The project has moved away from the older split BOLT ECS model and now centers on a unified gameplay owner program plus a dedicated player market program.
+Solana + Anchor backend for GAMESOL, an on-chain space strategy game.
+
+The active backend is centered on two programs:
+
+- `game_state`: owns player profiles, planets, resources, buildings, research,
+  fleets, missions, quests, store purchases, alliances, vault authorization,
+  and ANTIMATTER-powered acceleration.
+- `market`: handles player-to-player resource and planet listings, settles
+  purchases against `game_state`, and routes ANTIMATTER market fees to the
+  protocol treasury.
 
 ## Current Architecture
 
-The active on-chain programs are:
+Core accounts:
 
-- `game-state`: unified gameplay owner for planets, resources, fleets,
-  research, missions, authorization, commit flow, and ANTIMATTER-powered queue
-  acceleration
-- `market`: player-to-player resource marketplace that settles against
-  `game-state` and uses ANTIMATTER as the payment asset
-
-Core concepts in the current model:
-
-- `PlayerProfile` tracks wallet ownership and colony count
-- `PlanetState` is the main per-planet gameplay PDA and source of truth for
-  progression
-- `AuthorizedVault` lets gameplay run through a wallet-approved vault signer
-  without requiring constant wallet popups
-- `GameConfig` stores the global ANTIMATTER mint used for queue acceleration
-- `MarketOffer` stores resource listings that lock resources at offer creation,
-  refund them on cancellation, and deliver them on purchase
-
-## Product Surface
-
-The current gameplay and economy flow covers:
-
-- player initialization
-- homeworld and colony creation
-- resource settlement
-- building queues
-- research queues
-- ship construction
-- fleet launch
-- transport resolution
-- colonization resolution
-- player-authorized vault flow for lower-friction gameplay
-- delegated execution and explicit commit support
-- ANTIMATTER acceleration for building, research, and ship production
-- peer-to-peer resource trading through the marketplace
+- `PlayerProfile`: per-wallet player profile and planet count.
+- `PlanetState`: per-planet gameplay source of truth.
+- `PlanetCoordinates`: public coordinate registry for galaxy/system/position.
+- `AuthorizedVault`: wallet-approved signer used for routine gameplay actions.
+- `VaultBackup`: encrypted vault recovery data.
+- `QuestState` and `QuestProgressState`: tutorial and recurring quest state.
+- `StoreConfig` and `StorePurchaseState`: USDC store config and period limits.
+- `AllianceState`, `AllianceMembership`, `AllianceTreasuryState`: alliance
+  membership, deposits, buildings, and shared progression.
+- `MarketOffer` and `PlanetListing`: resource and planet market listings.
 
 ## Repository Layout
 
-- [`programs/game-state`](programs/game-state):
-  unified gameplay program
-- [`programs/market`](programs/market):
-  marketplace program
-- [`docs/game-state-program.md`](docs/game-state-program.md):
-  game-state program reference
-- [`docs/unified-state-architecture.md`](docs/unified-state-architecture.md):
-  technical design rationale for the unified owner model
-- [`docs/migration-history.md`](docs/migration-history.md):
-  migration story from BOLT components to the current architecture
-- [`Anchor.toml`](Anchor.toml):
-  Anchor workspace config
-- [`Cargo.toml`](Cargo.toml):
-  Rust workspace config
+- `programs/game-state`: gameplay program
+- `programs/market`: market program
+- `docs/game-state-program.md`: gameplay program reference
+- `docs/mainnet-readiness.md`: production readiness checklist
+- `scripts/init-devnet-configs.cjs`: devnet config initialization helper
+- `Anchor.toml`: Anchor workspace config
+- `Cargo.toml`: Rust workspace config
 
 ## Requirements
 
@@ -65,8 +43,6 @@ The current gameplay and economy flow covers:
 - Anchor CLI `0.30.1`
 
 ## Build
-
-Build the workspace:
 
 ```bash
 anchor build
@@ -86,62 +62,41 @@ anchor build --program-name market
 
 ## Deploy
 
-Example deploy flow:
+Example devnet deploy flow:
 
 ```bash
 anchor deploy --program-name game_state
 anchor deploy --program-name market
 ```
 
+If Anchor builds the `.so` but IDL generation fails, the compiled program can
+still be upgraded with `solana program deploy` using the configured upgrade
+authority.
+
 After deploying:
 
-- regenerate and distribute [`target/idl/game_state.json`](target/idl/game_state.json)
-- regenerate and distribute [`target/idl/market.json`](target/idl/market.json)
-- keep client constants and deployed program IDs aligned across both programs
+- verify on-chain program IDs match `Anchor.toml`
+- verify frontend constants match the deployed program IDs and token mints
+- initialize or update game, store, and market config accounts as needed
+- run a manual smoke test through the production frontend
 
-## Gameplay Notes
+## Economy Notes
 
-- `game-state` is the source of truth for player progression and per-planet
-  state
-- the vault-signed path is the main low-friction gameplay path in the current
-  architecture
-- explicit commit helpers remain built into the owner program for delegated
-  execution support
-- ANTIMATTER is used as both a queue-acceleration asset and the market payment
-  asset
+- ANTIMATTER is used for acceleration, market payments, alliance costs, and
+  selected economy actions.
+- USDC store purchases route to the configured treasury account.
+- Market fees and alliance ANTIMATTER deposits route to the protocol
+  ANTIMATTER treasury.
+- Player resources are game-state balances, not SPL tokens.
 
-## Market Notes
+## Development Notes
 
-- sellers create offers against a selected planet
-- resource amounts are locked on the seller planet when an offer is created
-- cancelling an offer refunds the locked resources to the seller planet
-- accepting an offer transfers ANTIMATTER from buyer to seller, burns the
-  configured fee, and credits the purchased resources to the buyer planet
-- the market program is intentionally coupled to the deployed `game-state`
-  program ID, so redeploys must keep those constants synchronized
+- `cargo check --workspace` is the quick local verification pass.
+- The frontend lives in a separate repository:
 
-## Migration Context
+```text
+https://github.com/SrMessiSOL/chained-universe-frontend
+```
 
-This repository originally used many BOLT ECS components and systems. That
-model worked early on, but it made explicit owner-side commits difficult once
-gameplay moved toward delegated execution and more complex multi-surface state.
-The unified `game-state` program solved that by bringing the gameplay state
-that must commit together under a single owner, and the `market` program was
-added later as a dedicated economy surface that settles directly against that
-state.
-
-For the technical reasoning and migration path:
-
-- read [`docs/unified-state-architecture.md`](docs/unified-state-architecture.md)
-- read [`docs/migration-history.md`](docs/migration-history.md)
-
-## New Developer Onboarding
-
-Start here:
-
-1. Read this `README`
-2. Read [`docs/game-state-program.md`](docs/game-state-program.md)
-3. Read [`docs/migration-history.md`](docs/migration-history.md)
-4. Build the workspace and inspect the generated IDLs
-5. Update clients against `game_state.json` and `market.json`, not the old
-   component/system IDLs
+- Keep backend, frontend, deployed program binaries, and GitHub branches aligned
+  before production testing.
