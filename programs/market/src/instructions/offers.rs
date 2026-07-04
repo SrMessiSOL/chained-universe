@@ -207,7 +207,6 @@ pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
     Ok(())
 }
 
-#[allow(unreachable_code)]
 pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
     require!(!ctx.accounts.offer.filled, MarketError::AlreadyFilled);
 
@@ -309,105 +308,6 @@ pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
             price,
         );
 
-        return Ok(());
+        Ok(())
     }
-
-    require!(
-        ctx.accounts.buyer_antimatter_account.amount >= price,
-        MarketError::InsufficientAntimatter,
-    );
-
-    let fee = if MARKET_FEE_BPS > 0 {
-        price.saturating_mul(MARKET_FEE_BPS) / 10_000
-    } else {
-        0
-    };
-    let seller_receives = price.saturating_sub(fee);
-
-    let authority_seeds: &[&[&[u8]]] =
-        &[&[b"market_authority", &[ctx.bumps.market_escrow_authority]]];
-
-    token::transfer(
-        CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.buyer_antimatter_account.to_account_info(),
-                to: ctx.accounts.market_escrow.to_account_info(),
-                authority: ctx.accounts.buyer.to_account_info(),
-            },
-        ),
-        price,
-    )?;
-
-    token::transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            Transfer {
-                from: ctx.accounts.market_escrow.to_account_info(),
-                to: ctx.accounts.seller_antimatter_account.to_account_info(),
-                authority: ctx.accounts.market_escrow_authority.to_account_info(),
-            },
-            authority_seeds,
-        ),
-        seller_receives,
-    )?;
-
-    if fee > 0 {
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.market_escrow.to_account_info(),
-                    to: ctx.accounts.treasury_antimatter_account.to_account_info(),
-                    authority: ctx.accounts.market_escrow_authority.to_account_info(),
-                },
-                authority_seeds,
-            ),
-            fee,
-        )?;
-    }
-
-    let cpi_ix = anchor_lang::solana_program::instruction::Instruction {
-        program_id: ctx.accounts.game_program.key(),
-        accounts: vec![
-            AccountMeta::new(ctx.accounts.seller_planet.key(), false),
-            AccountMeta::new(ctx.accounts.buyer_planet.key(), false),
-            AccountMeta::new(ctx.accounts.buyer.key(), true),
-        ],
-        data: {
-            let mut data = vec![0u8; 17];
-            data[0..8].copy_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
-            data[8] = resource_type as u8;
-            data[9..17].copy_from_slice(&resource_amount.to_le_bytes());
-            data
-        },
-    };
-
-    anchor_lang::solana_program::program::invoke(
-        &cpi_ix,
-        &[
-            ctx.accounts.seller_planet.to_account_info(),
-            ctx.accounts.buyer_planet.to_account_info(),
-            ctx.accounts.buyer.to_account_info(),
-            ctx.accounts.game_program.to_account_info(),
-        ],
-    )?;
-
-    ctx.accounts.offer.filled = true;
-    ctx.accounts.seller_counter.active_offers =
-        ctx.accounts.seller_counter.active_offers.saturating_sub(1);
-    ctx.accounts.market_config.total_volume =
-        ctx.accounts.market_config.total_volume.saturating_add(price as u128);
-
-    msg!(
-        "Offer filled: offer_id={} buyer={} seller={} resource={} amount={} price={}",
-        ctx.accounts.offer.offer_id,
-        ctx.accounts.buyer.key(),
-        ctx.accounts.offer.seller,
-        resource_type.as_str(),
-        resource_amount,
-        price,
-    );
-
-    Ok(())
 }
