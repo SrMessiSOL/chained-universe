@@ -10,7 +10,7 @@ use crate::constants::{
 use crate::error::MarketError;
 use crate::state::{MarketConfig, MarketOffer, SellerCounter};
 use crate::types::ResourceType;
-use crate::utils::build_market_resource_ix;
+use crate::utils::{build_market_resource_ix, require_protocol_antimatter_treasury};
 
 #[derive(Accounts)]
 pub struct CreateOffer<'info> {
@@ -255,6 +255,11 @@ pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         )?;
 
         if fee > 0 {
+            require_protocol_antimatter_treasury(
+                ctx.accounts.treasury_antimatter_account.key(),
+                ctx.accounts.market_config.admin,
+                ctx.accounts.antimatter_mint.key(),
+            )?;
             token::transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),

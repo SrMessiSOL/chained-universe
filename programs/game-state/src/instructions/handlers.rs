@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_error::ProgramError;
+use anchor_spl::associated_token::get_associated_token_address;
 use anchor_spl::token::{self, Mint, TokenAccount, Transfer};
 
 use crate::constants::*;
@@ -812,6 +813,11 @@ pub fn create_alliance(
         ctx.accounts.store_config.admin,
         GameStateError::InvalidAntimatterAccount
     );
+    require_protocol_antimatter_treasury(
+        ctx.accounts.treasury_antimatter_account.key(),
+        ctx.accounts.store_config.admin,
+        ctx.accounts.antimatter_mint.key(),
+    )?;
     require!(
         ctx.accounts.user_antimatter_account.amount >= ALLIANCE_CREATE_ANTIMATTER_COST,
         GameStateError::InsufficientAntimatter
@@ -984,6 +990,20 @@ fn init_alliance_membership(
         monthly_claimed_mask: 0,
         bump,
     });
+}
+
+fn require_protocol_antimatter_treasury(
+    treasury: Pubkey,
+    admin: Pubkey,
+    mint: Pubkey,
+) -> Result<()> {
+    let expected_treasury = get_associated_token_address(&admin, &mint);
+    require_keys_eq!(
+        treasury,
+        expected_treasury,
+        GameStateError::InvalidAntimatterAccount
+    );
+    Ok(())
 }
 
 pub fn claim_alliance_mission(
@@ -1232,6 +1252,11 @@ pub fn deposit_alliance_resources(
             store_config.admin,
             GameStateError::InvalidAntimatterAccount
         );
+        require_protocol_antimatter_treasury(
+            ctx.accounts.treasury_antimatter_account.key(),
+            store_config.admin,
+            ctx.accounts.antimatter_mint.key(),
+        )?;
         require!(
             user_antimatter_account.amount >= antimatter,
             GameStateError::InsufficientAntimatter
@@ -1463,6 +1488,11 @@ pub fn deposit_alliance_resources_vault(
             store_config.admin,
             GameStateError::InvalidAntimatterAccount
         );
+        require_protocol_antimatter_treasury(
+            ctx.accounts.treasury_antimatter_account.key(),
+            store_config.admin,
+            ctx.accounts.antimatter_mint.key(),
+        )?;
         require!(
             user_antimatter_account.amount >= antimatter,
             GameStateError::InsufficientAntimatter

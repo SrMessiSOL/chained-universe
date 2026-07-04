@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
+use anchor_spl::associated_token::get_associated_token_address;
 
+use crate::error::MarketError;
 use crate::types::ResourceType;
 
 pub fn build_market_resource_ix(
@@ -20,4 +22,14 @@ pub fn build_market_resource_ix(
         accounts,
         data,
     }
+}
+
+pub fn require_protocol_antimatter_treasury(
+    treasury: Pubkey,
+    admin: Pubkey,
+    mint: Pubkey,
+) -> Result<()> {
+    let expected_treasury = get_associated_token_address(&admin, &mint);
+    require_keys_eq!(treasury, expected_treasury, MarketError::InvalidTokenAccount);
+    Ok(())
 }

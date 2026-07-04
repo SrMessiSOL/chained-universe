@@ -8,6 +8,7 @@ use crate::constants::{
 };
 use crate::error::MarketError;
 use crate::state::{MarketConfig, PlanetListing, SellerCounter};
+use crate::utils::require_protocol_antimatter_treasury;
 
 const PLANET_STATE_AUTHORITY_OFFSET: usize = 8;
 const PLANET_STATE_INDEX_OFFSET: usize = 72;
@@ -282,6 +283,11 @@ pub fn buy_planet_listing(ctx: Context<BuyPlanetListing>) -> Result<()> {
     )?;
 
     if fee > 0 {
+        require_protocol_antimatter_treasury(
+            ctx.accounts.treasury_antimatter_account.key(),
+            ctx.accounts.market_config.admin,
+            ctx.accounts.antimatter_mint.key(),
+        )?;
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
