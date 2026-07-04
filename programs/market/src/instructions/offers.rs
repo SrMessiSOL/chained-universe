@@ -22,8 +22,10 @@ pub struct CreateOffer<'info> {
     pub seller_counter: Account<'info, SellerCounter>,
     #[account(init, payer = seller, space = OFFER_ACCOUNT_SPACE, seeds = [b"market_offer", seller.key().as_ref(), &seller_counter.next_offer_id.to_le_bytes()], bump)]
     pub offer: Account<'info, MarketOffer>,
+    /// CHECK: constrained to the configured game-state program id.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
+    /// CHECK: game-state planet account is constrained by owner and used by game-state CPI.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
@@ -37,10 +39,13 @@ pub struct CancelOffer<'info> {
     pub offer: Account<'info, MarketOffer>,
     #[account(mut, seeds = [b"seller_counter", seller.key().as_ref()], bump = seller_counter.bump)]
     pub seller_counter: Account<'info, SellerCounter>,
+    /// CHECK: constrained to the configured game-state program id.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
+    /// CHECK: game-state planet account is constrained by address, owner, and used by game-state CPI.
     #[account(mut, address = offer.seller_planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
+    /// CHECK: PDA authority is constrained by its fixed market_authority seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_authority: UncheckedAccount<'info>,
 }
@@ -86,18 +91,22 @@ pub struct AcceptOffer<'info> {
     )]
     pub treasury_antimatter_account: Account<'info, TokenAccount>,
 
+    /// CHECK: PDA authority is constrained by its fixed market_authority seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_escrow_authority: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 
+    /// CHECK: constrained to the configured game-state program id.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
 
+    /// CHECK: game-state planet account is constrained by address, owner, and used by game-state CPI.
     #[account(mut, address = offer.seller_planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
 
+    /// CHECK: game-state planet account is constrained by owner and used by game-state CPI.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub buyer_planet: UncheckedAccount<'info>,
 }

@@ -16,8 +16,8 @@ default = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.29.0", features = ["init-if-needed"] }
-anchor-spl  = { version = "0.29.0", features = ["token"] }
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+anchor-spl = { workspace = true, features = ["token"] }
 
 [dev-dependencies]
-anchor-client = "0.29.0"
+anchor-client = "0.30.1"

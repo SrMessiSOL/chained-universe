@@ -101,8 +101,10 @@ pub struct CreatePlanetListing<'info> {
     pub seller_counter: Account<'info, SellerCounter>,
     #[account(init, payer = seller, space = PLANET_LISTING_ACCOUNT_SPACE, seeds = [b"planet_listing", seller.key().as_ref(), &seller_counter.next_offer_id.to_le_bytes()], bump)]
     pub listing: Account<'info, PlanetListing>,
+    /// CHECK: game-state planet account is constrained by owner and validated by raw state fields.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub planet: UncheckedAccount<'info>,
+    /// CHECK: game-state coords account is constrained by owner and validated against the planet PDA.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub planet_coords: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
@@ -154,17 +156,21 @@ pub struct BuyPlanetListing<'info> {
     )]
     pub treasury_antimatter_account: Account<'info, TokenAccount>,
 
+    /// CHECK: PDA authority is constrained by its fixed market_authority seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_escrow_authority: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,
 
+    /// CHECK: constrained to the configured game-state program id.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
 
+    /// CHECK: game-state planet account is constrained by address, owner, and validated by raw state fields.
     #[account(mut, address = listing.planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub planet: UncheckedAccount<'info>,
 
+    /// CHECK: game-state coords account is constrained by address, owner, and validated against the planet PDA.
     #[account(mut, address = listing.planet_coords @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub planet_coords: UncheckedAccount<'info>,
 

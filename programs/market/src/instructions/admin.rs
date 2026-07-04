@@ -24,6 +24,7 @@ pub struct InitializeEscrow<'info> {
     pub antimatter_mint: Account<'info, Mint>,
     #[account(init, payer = admin, seeds = [b"market_escrow"], bump, token::mint = antimatter_mint, token::authority = market_escrow_authority)]
     pub market_escrow: Account<'info, TokenAccount>,
+    /// CHECK: PDA authority is constrained by its fixed market_authority seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_escrow_authority: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
