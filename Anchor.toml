@@ -10,9 +10,9 @@ cluster = "devnet"
 wallet = "~/.config/solana/devnet.json"
 
 [programs.devnet]
-game_state = "HheELu8GJ7EAw7afAxinmJLEnzQK7gAMBWYqDUXtec2S"
-market = "ESjW56VLfUfvjgWmAMtQnhgyEpo8esQZQh2meRVNg1gA"
-private_state = "HHF3gZKAGLL5GB633tz9U8aGT8HxAaPnSi2YZpgF7d4K"
+game_state = "FJGxh6SKgNoTVzHj98oBsC2oaEy8ovadVJf8rDUNaEHb"
+market = "Dow7f1UqLGKyvs1D2uNR5c6bmAdnKRy2ZDtnsa4UhApp"
+private_state = "P8gtUdeBpt6oG5a7LFQbxnHJbLyc9X9BhTj8iz8pSn1"
 
 [workspace]
 members = [

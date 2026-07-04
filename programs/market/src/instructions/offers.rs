@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::AccountMeta;
-use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use crate::constants::{
     ANTIMATTER_SCALE, GAME_STATE_PROGRAM_ID, LOCK_RESOURCES_FOR_MARKET_DISCRIMINATOR,
@@ -78,6 +78,13 @@ pub struct AcceptOffer<'info> {
 
     #[account(mut, seeds = [b"market_escrow"], bump, token::mint = antimatter_mint, token::authority = market_escrow_authority)]
     pub market_escrow: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        token::mint = antimatter_mint,
+        token::authority = market_config.admin
+    )]
+    pub treasury_antimatter_account: Account<'info, TokenAccount>,
 
     #[account(seeds = [b"market_authority"], bump)]
     pub market_escrow_authority: UncheckedAccount<'info>,
@@ -249,12 +256,12 @@ pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         )?;
 
         if fee > 0 {
-            token::burn(
+            token::transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
-                    Burn {
-                        mint: ctx.accounts.antimatter_mint.to_account_info(),
+                    Transfer {
                         from: ctx.accounts.market_escrow.to_account_info(),
+                        to: ctx.accounts.treasury_antimatter_account.to_account_info(),
                         authority: ctx.accounts.market_escrow_authority.to_account_info(),
                     },
                     authority_seeds,
@@ -346,12 +353,12 @@ pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
     )?;
 
     if fee > 0 {
-        token::burn(
+        token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
-                Burn {
-                    mint: ctx.accounts.antimatter_mint.to_account_info(),
+                Transfer {
                     from: ctx.accounts.market_escrow.to_account_info(),
+                    to: ctx.accounts.treasury_antimatter_account.to_account_info(),
                     authority: ctx.accounts.market_escrow_authority.to_account_info(),
                 },
                 authority_seeds,

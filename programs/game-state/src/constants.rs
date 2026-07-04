@@ -1,14 +1,17 @@
 use anchor_lang::prelude::*;
 
 use crate::state::{
-    AllianceJoinRequest, AllianceMembership, AllianceState, AuthorizedVault, GameConfig,
-    PlanetCoordinates, PlanetState, PlayerProfile, PublicPlanetCoordinates, PublicPlanetState,
-    QuestState, StoreConfig, StorePurchaseState, VaultBackup,
+    AllianceJoinRequest, AllianceMembership, AllianceMetadata, AllianceState, AllianceTreasuryState,
+    AuthorizedVault, GameConfig, PlanetCoordinates, PlanetState, PlayerProfile,
+    PublicPlanetCoordinates, PublicPlanetState, QuestProgressState, QuestState, StoreConfig,
+    StorePurchaseState, VaultBackup,
 };
 
 pub const MAX_PLANET_NAME_LEN: usize = 32;
 pub const MAX_MISSION_COLONY_NAME_LEN: usize = 32;
 pub const MAX_ALLIANCE_NAME_LEN: usize = 32;
+pub const MAX_ALLIANCE_TAG_LEN: usize = 3;
+pub const MAX_ALLIANCE_IMAGE_URL_LEN: usize = 160;
 pub const MAX_MISSIONS: usize = 4;
 pub const MAX_COMBAT_ROUNDS: u8 = 6;
 pub const MAX_RESOURCE_SETTLEMENT_SECONDS: i64 = 86_400;
@@ -28,14 +31,17 @@ pub const MISSION_COLONIZE: u8 = 5;
 pub const MISSION_ESPIONAGE: u8 = 6;
 pub const ANTIMATTER_DECIMALS: u8 = 6;
 pub const ANTIMATTER_SCALE: u64 = 1_000_000;
-pub const ALLIANCE_CREATE_USDC_COST: u64 = 1_000_000;
-pub const ALLIANCE_CREATE_ANTIMATTER_COST: u64 = 10_000 * ANTIMATTER_SCALE;
+pub const ALLIANCE_CREATE_USDC_COST: u64 = 500_000_000;
+pub const ALLIANCE_CREATE_ANTIMATTER_COST: u64 = 100_000 * ANTIMATTER_SCALE;
 pub const ALLIANCE_CREATE_ANTIMATTER_BURN: u64 = ALLIANCE_CREATE_ANTIMATTER_COST / 2;
 pub const ALLIANCE_CREATE_ANTIMATTER_TREASURY: u64 =
     ALLIANCE_CREATE_ANTIMATTER_COST - ALLIANCE_CREATE_ANTIMATTER_BURN;
+pub const ALLIANCE_DEPOSIT_XP_PER_RESOURCE_UNIT: u64 = 1_000;
+pub const ALLIANCE_DEPOSIT_XP_PER_ANTIMATTER_UNIT: u64 = ANTIMATTER_SCALE;
+pub const ALLIANCE_BUILDING_MAX_LEVEL: u8 = 25;
 pub const PROTOCOL_AUTHORITY: Pubkey = Pubkey::new_from_array([
-    18, 219, 72, 180, 222, 89, 132, 119, 116, 48, 110, 92, 37, 47, 145, 94, 46, 236, 45, 117, 75,
-    253, 48, 98, 150, 23, 63, 86, 44, 10, 129, 59,
+    203, 132, 160, 224, 36, 85, 73, 7, 47, 237, 167, 190, 14, 187, 187, 93, 163, 241, 26, 147,
+    33, 250, 136, 102, 231, 253, 14, 8, 203, 234, 209, 64,
 ]);
 pub const PROTOCOL_ANTIMATTER_MINT: Pubkey = Pubkey::new_from_array([
     210, 124, 79, 139, 189, 97, 171, 121, 236, 30, 15, 224, 71, 28, 151, 137, 112, 205, 123, 216,
@@ -60,13 +66,16 @@ pub const GAME_CONFIG_SPACE: usize = 8 + GameConfig::INIT_SPACE;
 pub const STORE_CONFIG_SPACE: usize = 8 + StoreConfig::INIT_SPACE;
 pub const STORE_PURCHASE_STATE_SPACE: usize = 8 + StorePurchaseState::INIT_SPACE;
 pub const QUEST_STATE_SPACE: usize = 8 + QuestState::INIT_SPACE;
+pub const QUEST_PROGRESS_STATE_SPACE: usize = 8 + QuestProgressState::INIT_SPACE;
 pub const ALLIANCE_STATE_SPACE: usize = 8 + AllianceState::INIT_SPACE;
+pub const ALLIANCE_METADATA_SPACE: usize = 8 + AllianceMetadata::INIT_SPACE;
+pub const ALLIANCE_TREASURY_SPACE: usize = 8 + AllianceTreasuryState::INIT_SPACE;
 pub const ALLIANCE_MEMBERSHIP_SPACE: usize = 8 + AllianceMembership::INIT_SPACE;
 pub const ALLIANCE_JOIN_REQUEST_SPACE: usize = 8 + AllianceJoinRequest::INIT_SPACE;
 pub const BASE_ALLIANCE_MAX_MEMBERS: u16 = 5;
 pub const ALLIANCE_MEMBERS_PER_LEVEL: u16 = 3;
 pub const ALLIANCE_XP_UNIT: u64 = 1_000;
 pub const MARKET_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    199, 191, 129, 173, 48, 254, 247, 243, 56, 143, 194, 106, 97, 95, 247, 100, 186, 110, 44, 199,
-    200, 196, 181, 11, 54, 135, 246, 43, 169, 50, 45, 71,
+    190, 82, 37, 232, 28, 50, 248, 91, 61, 49, 15, 43, 213, 115, 237, 81, 239, 139, 230, 221,
+    59, 251, 31, 76, 160, 16, 0, 153, 247, 21, 15, 41,
 ]);

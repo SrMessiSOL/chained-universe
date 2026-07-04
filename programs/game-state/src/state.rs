@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    MAX_ALLIANCE_NAME_LEN, MAX_MISSIONS, MAX_MISSION_COLONY_NAME_LEN, MAX_PLANET_NAME_LEN,
+    MAX_ALLIANCE_IMAGE_URL_LEN, MAX_ALLIANCE_NAME_LEN, MAX_ALLIANCE_TAG_LEN, MAX_MISSIONS,
+    MAX_MISSION_COLONY_NAME_LEN, MAX_PLANET_NAME_LEN,
 };
 use crate::error::GameStateError;
 
@@ -86,6 +87,34 @@ pub struct AllianceState {
 
 #[account]
 #[derive(InitSpace)]
+pub struct AllianceMetadata {
+    pub alliance: Pubkey,
+    pub tag: [u8; MAX_ALLIANCE_TAG_LEN],
+    pub image_url: [u8; MAX_ALLIANCE_IMAGE_URL_LEN],
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct AllianceTreasuryState {
+    pub alliance: Pubkey,
+    pub metal: u64,
+    pub crystal: u64,
+    pub deuterium: u64,
+    pub antimatter: u64,
+    pub logistics_hub: u8,
+    pub research_grid: u8,
+    pub defense_coordination: u8,
+    pub trade_network: u8,
+    pub total_metal_deposited: u64,
+    pub total_crystal_deposited: u64,
+    pub total_deuterium_deposited: u64,
+    pub total_antimatter_deposited: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct AllianceMembership {
     pub authority: Pubkey,
     pub alliance: Pubkey,
@@ -123,6 +152,35 @@ pub struct QuestState {
     pub daily_checkin_day: i64,
     pub daily_checkin_streak: u16,
     pub total_checkins: u32,
+    pub last_updated_ts: i64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct QuestProgressState {
+    pub authority: Pubkey,
+    pub daily_epoch: i64,
+    pub weekly_epoch: i64,
+    pub monthly_epoch: i64,
+    pub daily_store_packs_bought: u32,
+    pub weekly_store_packs_bought: u32,
+    pub monthly_store_packs_bought: u32,
+    pub daily_antimatter_spent: u64,
+    pub weekly_antimatter_spent: u64,
+    pub monthly_antimatter_spent: u64,
+    pub daily_planets_colonized: u32,
+    pub weekly_planets_colonized: u32,
+    pub monthly_planets_colonized: u32,
+    pub daily_attacks_resolved: u32,
+    pub weekly_attacks_resolved: u32,
+    pub monthly_attacks_resolved: u32,
+    pub daily_transports_resolved: u32,
+    pub weekly_transports_resolved: u32,
+    pub monthly_transports_resolved: u32,
+    pub daily_spy_missions_resolved: u32,
+    pub weekly_spy_missions_resolved: u32,
+    pub monthly_spy_missions_resolved: u32,
     pub last_updated_ts: i64,
     pub bump: u8,
 }
@@ -529,6 +587,8 @@ pub struct BattleResolvedEvent {
     pub loot_deuterium: u64,
     pub debris_metal: u64,
     pub debris_crystal: u64,
+    pub recycled_metal: u64,
+    pub recycled_crystal: u64,
     pub attacker_small_cargo: u32,
     pub attacker_large_cargo: u32,
     pub attacker_light_fighter: u32,

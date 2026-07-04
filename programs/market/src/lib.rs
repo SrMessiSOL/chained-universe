@@ -13,7 +13,7 @@ pub use error::*;
 pub use state::*;
 pub use types::*;
 
-declare_id!("E6ubJUSv2eqJE93HHma7WAiMrikkUxkBmEkqELvVb8j3");
+declare_id!("Dow7f1UqLGKyvs1D2uNR5c6bmAdnKRy2ZDtnsa4UhApp");
 
 #[program]
 pub mod market {
@@ -49,5 +49,20 @@ pub mod market {
 
     pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         instructions::accept_offer(ctx)
+    }
+
+    pub fn create_planet_listing(
+        ctx: Context<CreatePlanetListing>,
+        price_antimatter: u64,
+    ) -> Result<()> {
+        instructions::create_planet_listing(ctx, price_antimatter)
+    }
+
+    pub fn cancel_planet_listing(ctx: Context<CancelPlanetListing>) -> Result<()> {
+        instructions::cancel_planet_listing(ctx)
+    }
+
+    pub fn buy_planet_listing(ctx: Context<BuyPlanetListing>) -> Result<()> {
+        instructions::buy_planet_listing(ctx)
     }
 }

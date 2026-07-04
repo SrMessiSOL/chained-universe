@@ -4,7 +4,6 @@ pub mod contexts;
 pub mod error;
 pub mod instructions;
 pub mod state;
-pub mod token;
 pub mod utils;
 
 pub use constants::*;
@@ -12,7 +11,7 @@ use contexts::*;
 pub use error::*;
 pub use state::*;
 
-declare_id!("HheELu8GJ7EAw7afAxinmJLEnzQK7gAMBWYqDUXtec2S");
+declare_id!("FJGxh6SKgNoTVzHj98oBsC2oaEy8ovadVJf8rDUNaEHb");
 
 #[program]
 pub mod game_state {
@@ -106,6 +105,10 @@ pub mod game_state {
         instructions::initialize_quest_state(ctx)
     }
 
+    pub fn initialize_quest_progress(ctx: Context<InitializeQuestProgress>) -> Result<()> {
+        instructions::initialize_quest_progress(ctx)
+    }
+
     pub fn initialize_store_config(
         ctx: Context<InitializeStoreConfig>,
         enabled: bool,
@@ -145,8 +148,13 @@ pub mod game_state {
         instructions::claim_quest_vault(ctx, period, quest_id)
     }
 
-    pub fn create_alliance(ctx: Context<CreateAlliance>, name: String) -> Result<()> {
-        instructions::create_alliance(ctx, name)
+    pub fn create_alliance(
+        ctx: Context<CreateAlliance>,
+        name: String,
+        tag: String,
+        image_url: String,
+    ) -> Result<()> {
+        instructions::create_alliance(ctx, name, tag, image_url)
     }
 
     pub fn join_alliance(ctx: Context<JoinAlliance>) -> Result<()> {
@@ -155,6 +163,10 @@ pub mod game_state {
 
     pub fn request_join_alliance(ctx: Context<RequestJoinAlliance>) -> Result<()> {
         instructions::request_join_alliance(ctx)
+    }
+
+    pub fn request_join_alliance_vault(ctx: Context<RequestJoinAllianceVault>) -> Result<()> {
+        instructions::request_join_alliance_vault(ctx)
     }
 
     pub fn approve_join_request(ctx: Context<ApproveJoinRequest>) -> Result<()> {
@@ -183,6 +195,51 @@ pub mod game_state {
         mission_id: u8,
     ) -> Result<()> {
         instructions::claim_alliance_mission(ctx, period, mission_id)
+    }
+
+    pub fn initialize_alliance_treasury(ctx: Context<InitializeAllianceTreasury>) -> Result<()> {
+        instructions::initialize_alliance_treasury(ctx)
+    }
+
+    pub fn initialize_alliance_treasury_vault(
+        ctx: Context<InitializeAllianceTreasuryVault>,
+    ) -> Result<()> {
+        instructions::initialize_alliance_treasury_vault(ctx)
+    }
+
+    pub fn deposit_alliance_resources(
+        ctx: Context<DepositAllianceResources>,
+        period: u8,
+        mission_id: u8,
+        metal: u64,
+        crystal: u64,
+        deuterium: u64,
+        antimatter: u64,
+    ) -> Result<()> {
+        instructions::deposit_alliance_resources(
+            ctx, period, mission_id, metal, crystal, deuterium, antimatter,
+        )
+    }
+
+    pub fn deposit_alliance_resources_vault(
+        ctx: Context<DepositAllianceResourcesVault>,
+        period: u8,
+        mission_id: u8,
+        metal: u64,
+        crystal: u64,
+        deuterium: u64,
+        antimatter: u64,
+    ) -> Result<()> {
+        instructions::deposit_alliance_resources_vault(
+            ctx, period, mission_id, metal, crystal, deuterium, antimatter,
+        )
+    }
+
+    pub fn upgrade_alliance_building(
+        ctx: Context<UpgradeAllianceBuilding>,
+        building_id: u8,
+    ) -> Result<()> {
+        instructions::upgrade_alliance_building(ctx, building_id)
     }
 
     pub fn produce(ctx: Context<MutatePlanetState>, now: i64) -> Result<()> {
@@ -391,6 +448,10 @@ pub mod game_state {
         instructions::transfer_planet(ctx)
     }
 
+    pub fn transfer_planet_from_market(ctx: Context<TransferPlanetFromMarket>) -> Result<()> {
+        instructions::transfer_planet_from_market(ctx)
+    }
+
     pub fn initialize_game_config(
         ctx: Context<InitializeGameConfig>,
         antimatter_mint: Pubkey,
@@ -415,6 +476,10 @@ pub mod game_state {
 
     pub fn accelerate_ship_build_with_antimatter(ctx: Context<UseAntimatter>) -> Result<()> {
         instructions::accelerate_ship_build_with_antimatter(ctx)
+    }
+
+    pub fn accelerate_defense_build_with_antimatter(ctx: Context<UseAntimatter>) -> Result<()> {
+        instructions::accelerate_defense_build_with_antimatter(ctx)
     }
 
     pub fn accelerate_mission_with_antimatter(

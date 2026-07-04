@@ -82,5 +82,7 @@ pub enum GameStateError {
     CannotExpelAllianceLeader,
     InvalidAllianceMember,
     DirectAllianceJoinDisabled,
+    InvalidAllianceBuilding,
+    AllianceTreasuryNotEnoughResources,
     LegacyPlanetStateDisabled,
 }

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
-use crate::constants::{MARKET_CONFIG_SPACE, GAME_STATE_PROGRAM_ID};
+use crate::constants::{MARKET_CONFIG_SPACE, PROTOCOL_ANTIMATTER_MINT, PROTOCOL_AUTHORITY};
 use crate::error::MarketError;
 use crate::state::MarketConfig;
 
@@ -42,6 +42,16 @@ pub fn initialize_market(
     ctx: Context<InitializeMarket>,
     antimatter_mint: Pubkey,
 ) -> Result<()> {
+    require_keys_eq!(
+        ctx.accounts.admin.key(),
+        PROTOCOL_AUTHORITY,
+        MarketError::Unauthorized
+    );
+    require_keys_eq!(
+        antimatter_mint,
+        PROTOCOL_ANTIMATTER_MINT,
+        MarketError::InvalidMint
+    );
     ctx.accounts.market_config.set_inner(MarketConfig {
         admin: ctx.accounts.admin.key(),
         antimatter_mint,
@@ -61,6 +71,11 @@ pub fn update_market_config(
     ctx: Context<UpdateMarketConfig>,
     antimatter_mint: Pubkey,
 ) -> Result<()> {
+    require_keys_eq!(
+        antimatter_mint,
+        PROTOCOL_ANTIMATTER_MINT,
+        MarketError::InvalidMint
+    );
     ctx.accounts.market_config.antimatter_mint = antimatter_mint;
     Ok(())
 }

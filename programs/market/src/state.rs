@@ -28,6 +28,19 @@ pub struct MarketOffer {
 
 #[account]
 #[derive(InitSpace)]
+pub struct PlanetListing {
+    pub seller: Pubkey,
+    pub planet: Pubkey,
+    pub planet_coords: Pubkey,
+    pub price_antimatter: u64,
+    pub created_at: i64,
+    pub listing_id: u32,
+    pub filled: bool,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct SellerCounter {
     pub seller: Pubkey,
     pub next_offer_id: u32,

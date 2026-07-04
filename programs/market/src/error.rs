@@ -24,4 +24,6 @@ pub enum MarketError {
     InvalidTokenAccount,
     #[msg("Seller does not have enough resources.")]
     InsufficientResources,
+    #[msg("The initial homeworld planet cannot be sold.")]
+    HomeworldNotSellable,
 }

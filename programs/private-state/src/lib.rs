@@ -1,19 +1,20 @@
 use anchor_lang::prelude::*;
 
-declare_id!("HHF3gZKAGLL5GB633tz9U8aGT8HxAaPnSi2YZpgF7d4K");
+declare_id!("P8gtUdeBpt6oG5a7LFQbxnHJbLyc9X9BhTj8iz8pSn1");
 
 pub const MAX_PRIVATE_PLANET_NAME_LEN: usize = 32;
+pub const MAX_ENCRYPTED_PRIVATE_STATE_LEN: usize = 1536;
+pub const MAX_ENCRYPTED_SPY_REPORT_LEN: usize = 1024;
 pub const MAX_REVEAL_LEVEL: u8 = 4;
 pub const PRIVATE_STATE_SCHEMA_V1: u8 = 1;
 pub const PRIVACY_ENGINE_COMMITMENT_ONLY: u8 = 0;
-pub const PRIVACY_ENGINE_ENCRYPT_FHE: u8 = 1;
+pub const PRIVACY_ENGINE_CLIENT_AES_GCM: u8 = 1;
 pub const PRIVATE_CIPHERTEXT_SCHEMA_V1: u16 = 1;
 pub const PRIVATE_PLANET_STATE_SPACE: usize = 8 + PrivatePlanetState::INIT_SPACE;
 pub const SPY_REPORT_REQUEST_SPACE: usize = 8 + SpyReportRequest::INIT_SPACE;
 pub const SPY_REPORT_SPACE: usize = 8 + SpyReport::INIT_SPACE;
-pub const GAME_STATE_PROGRAM_ID: Pubkey = pubkey!("HheELu8GJ7EAw7afAxinmJLEnzQK7gAMBWYqDUXtec2S");
-pub const GAME_PUBLIC_PLANET_STATE_DISCRIMINATOR: [u8; 8] =
-    [61, 168, 213, 170, 12, 18, 66, 158];
+pub const GAME_STATE_PROGRAM_ID: Pubkey = pubkey!("FJGxh6SKgNoTVzHj98oBsC2oaEy8ovadVJf8rDUNaEHb");
+pub const GAME_PUBLIC_PLANET_STATE_DISCRIMINATOR: [u8; 8] = [61, 168, 213, 170, 12, 18, 66, 158];
 pub const GAME_PUBLIC_PLANET_AUTHORITY_OFFSET: usize = 8;
 pub const GAME_PUBLIC_PLANET_AUTHORITY_END: usize = GAME_PUBLIC_PLANET_AUTHORITY_OFFSET + 32;
 pub const GAME_PUBLIC_PLANET_GALAXY_OFFSET: usize = GAME_PUBLIC_PLANET_AUTHORITY_END + 32 + 4;
@@ -34,12 +35,14 @@ pub mod private_state {
         position: u8,
         name: [u8; MAX_PRIVATE_PLANET_NAME_LEN],
         digest: PrivateStateDigest,
+        encrypted_state: EncryptedPrivateStateBlob,
     ) -> Result<()> {
         require!(
             galaxy > 0 && system > 0 && position > 0,
             PrivateStateError::InvalidCoordinates
         );
         validate_private_state_digest(&digest)?;
+        validate_encrypted_private_state(&digest, &encrypted_state)?;
         assert_public_game_planet(
             &ctx.accounts.public_planet,
             &ctx.accounts.authority.key(),
@@ -63,8 +66,12 @@ pub mod private_state {
             encrypted_state_hash: digest.encrypted_state_hash,
             privacy_engine: digest.seal.privacy_engine,
             ciphertext_schema: digest.seal.ciphertext_schema,
-            fhe_cluster: digest.seal.fhe_cluster,
+            encryption_key_hash: digest.seal.encryption_key_hash,
             decrypt_policy_hash: digest.seal.decrypt_policy_hash,
+            encrypted_state_ciphertext: encrypted_state.ciphertext,
+            ciphertext_nonce: encrypted_state.nonce,
+            ciphertext_recovery_salt: encrypted_state.recovery_salt,
+            ciphertext_kdf_salt: encrypted_state.kdf_salt,
             resources_commitment: digest.commitments.resources,
             buildings_commitment: digest.commitments.buildings,
             research_commitment: digest.commitments.research,
@@ -81,6 +88,7 @@ pub mod private_state {
     pub fn rotate_private_commitments(
         ctx: Context<RotatePrivateCommitments>,
         new_digest: PrivateStateDigest,
+        encrypted_state: EncryptedPrivateStateBlob,
         transition_hash: [u8; 32],
         action_kind: u8,
     ) -> Result<()> {
@@ -90,6 +98,7 @@ pub mod private_state {
         );
         require!(action_kind > 0, PrivateStateError::InvalidActionKind);
         validate_private_state_digest(&new_digest)?;
+        validate_encrypted_private_state(&new_digest, &encrypted_state)?;
         let planet = &mut ctx.accounts.private_planet;
         planet.state_epoch = planet
             .state_epoch
@@ -100,8 +109,12 @@ pub mod private_state {
         planet.encrypted_state_hash = new_digest.encrypted_state_hash;
         planet.privacy_engine = new_digest.seal.privacy_engine;
         planet.ciphertext_schema = new_digest.seal.ciphertext_schema;
-        planet.fhe_cluster = new_digest.seal.fhe_cluster;
+        planet.encryption_key_hash = new_digest.seal.encryption_key_hash;
         planet.decrypt_policy_hash = new_digest.seal.decrypt_policy_hash;
+        planet.encrypted_state_ciphertext = encrypted_state.ciphertext;
+        planet.ciphertext_nonce = encrypted_state.nonce;
+        planet.ciphertext_recovery_salt = encrypted_state.recovery_salt;
+        planet.ciphertext_kdf_salt = encrypted_state.kdf_salt;
         planet.resources_commitment = new_digest.commitments.resources;
         planet.buildings_commitment = new_digest.commitments.buildings;
         planet.research_commitment = new_digest.commitments.research;
@@ -121,14 +134,11 @@ pub mod private_state {
 
     pub fn publish_spy_report(
         ctx: Context<PublishSpyReport>,
-        report_ciphertext_hash: [u8; 32],
+        encrypted_report: EncryptedSpyReportBlob,
         report_commitment: [u8; 32],
     ) -> Result<()> {
         let request = &ctx.accounts.spy_report_request;
-        require!(
-            report_ciphertext_hash != [0; 32],
-            PrivateStateError::InvalidReportHash
-        );
+        validate_encrypted_spy_report(&encrypted_report)?;
         require!(
             report_commitment != [0; 32],
             PrivateStateError::InvalidReportHash
@@ -149,7 +159,9 @@ pub mod private_state {
             target_epoch: planet.state_epoch,
             report_nonce: request.report_nonce,
             reveal_level: request.reveal_level_cap,
-            report_ciphertext_hash,
+            report_ciphertext_hash: report_commitment,
+            report_ciphertext: encrypted_report.ciphertext,
+            report_nonce_bytes: encrypted_report.nonce,
             report_commitment,
             created_at: now,
             bump: ctx.bumps.spy_report,
@@ -162,7 +174,7 @@ pub mod private_state {
             target_epoch: planet.state_epoch,
             report_nonce: request.report_nonce,
             reveal_level: request.reveal_level_cap,
-            report_ciphertext_hash,
+            report_ciphertext_hash: ctx.accounts.spy_report.report_ciphertext_hash,
             report_commitment,
         });
         Ok(())
@@ -245,8 +257,22 @@ pub struct PrivateStateDigest {
 pub struct PrivateStateSeal {
     pub privacy_engine: u8,
     pub ciphertext_schema: u16,
-    pub fhe_cluster: Pubkey,
+    pub encryption_key_hash: [u8; 32],
     pub decrypt_policy_hash: [u8; 32],
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct EncryptedPrivateStateBlob {
+    pub nonce: [u8; 12],
+    pub recovery_salt: [u8; 16],
+    pub kdf_salt: [u8; 16],
+    pub ciphertext: Vec<u8>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct EncryptedSpyReportBlob {
+    pub nonce: [u8; 12],
+    pub ciphertext: Vec<u8>,
 }
 
 #[account]
@@ -266,8 +292,13 @@ pub struct PrivatePlanetState {
     pub encrypted_state_hash: [u8; 32],
     pub privacy_engine: u8,
     pub ciphertext_schema: u16,
-    pub fhe_cluster: Pubkey,
+    pub encryption_key_hash: [u8; 32],
     pub decrypt_policy_hash: [u8; 32],
+    #[max_len(MAX_ENCRYPTED_PRIVATE_STATE_LEN)]
+    pub encrypted_state_ciphertext: Vec<u8>,
+    pub ciphertext_nonce: [u8; 12],
+    pub ciphertext_recovery_salt: [u8; 16],
+    pub ciphertext_kdf_salt: [u8; 16],
     pub resources_commitment: [u8; 32],
     pub buildings_commitment: [u8; 32],
     pub research_commitment: [u8; 32],
@@ -290,6 +321,9 @@ pub struct SpyReport {
     pub report_nonce: u64,
     pub reveal_level: u8,
     pub report_ciphertext_hash: [u8; 32],
+    #[max_len(MAX_ENCRYPTED_SPY_REPORT_LEN)]
+    pub report_ciphertext: Vec<u8>,
+    pub report_nonce_bytes: [u8; 12],
     pub report_commitment: [u8; 32],
     pub created_at: i64,
     pub bump: u8,
@@ -342,9 +376,11 @@ pub struct RotatePrivateCommitments<'info> {
 
 #[derive(Accounts)]
 pub struct PublishSpyReport<'info> {
+    #[account(mut)]
     pub resolver: Signer<'info>,
     #[account(mut)]
-    pub spy_authority: Signer<'info>,
+    /// CHECK: original spy authority from the request; receives closed request rent.
+    pub spy_authority: UncheckedAccount<'info>,
     #[account(mut)]
     pub private_planet: Account<'info, PrivatePlanetState>,
     #[account(
@@ -357,7 +393,7 @@ pub struct PublishSpyReport<'info> {
     pub spy_report_request: Account<'info, SpyReportRequest>,
     #[account(
         init,
-        payer = spy_authority,
+        payer = resolver,
         space = SPY_REPORT_SPACE,
         seeds = [
             b"spy-report",
@@ -375,7 +411,7 @@ pub struct PublishSpyReport<'info> {
 pub struct RequestSpyReport<'info> {
     #[account(mut)]
     pub spy_authority: Signer<'info>,
-    /// CHECK: expected Encrypt/FHE callback authority or dev resolver.
+    /// CHECK: expected internal privacy resolver or dev resolver.
     pub resolver: UncheckedAccount<'info>,
     #[account(mut)]
     pub private_planet: Account<'info, PrivatePlanetState>,
@@ -444,7 +480,8 @@ pub enum PrivateStateError {
     InvalidPrivacyEngine,
     InvalidCiphertextSchema,
     InvalidDecryptPolicy,
-    InvalidFheCluster,
+    InvalidEncryptionKey,
+    InvalidCiphertext,
     InvalidSpyRequest,
     StaleSpyRequest,
     EpochOverflow,
@@ -475,7 +512,7 @@ fn validate_private_state_digest(digest: &PrivateStateDigest) -> Result<()> {
 fn validate_private_state_seal(seal: &PrivateStateSeal) -> Result<()> {
     require!(
         seal.privacy_engine == PRIVACY_ENGINE_COMMITMENT_ONLY
-            || seal.privacy_engine == PRIVACY_ENGINE_ENCRYPT_FHE,
+            || seal.privacy_engine == PRIVACY_ENGINE_CLIENT_AES_GCM,
         PrivateStateError::InvalidPrivacyEngine
     );
     require!(
@@ -486,12 +523,43 @@ fn validate_private_state_seal(seal: &PrivateStateSeal) -> Result<()> {
         seal.decrypt_policy_hash != [0; 32],
         PrivateStateError::InvalidDecryptPolicy
     );
-    if seal.privacy_engine == PRIVACY_ENGINE_ENCRYPT_FHE {
+    if seal.privacy_engine == PRIVACY_ENGINE_CLIENT_AES_GCM {
         require!(
-            seal.fhe_cluster != Pubkey::default(),
-            PrivateStateError::InvalidFheCluster
+            seal.encryption_key_hash != [0; 32],
+            PrivateStateError::InvalidEncryptionKey
         );
     }
+    Ok(())
+}
+
+fn validate_encrypted_private_state(
+    _digest: &PrivateStateDigest,
+    encrypted_state: &EncryptedPrivateStateBlob,
+) -> Result<()> {
+    require!(
+        !encrypted_state.ciphertext.is_empty()
+            && encrypted_state.ciphertext.len() <= MAX_ENCRYPTED_PRIVATE_STATE_LEN,
+        PrivateStateError::InvalidCiphertext
+    );
+    require!(
+        encrypted_state.nonce != [0; 12]
+            && encrypted_state.recovery_salt != [0; 16]
+            && encrypted_state.kdf_salt != [0; 16],
+        PrivateStateError::InvalidCiphertext
+    );
+    Ok(())
+}
+
+fn validate_encrypted_spy_report(encrypted_report: &EncryptedSpyReportBlob) -> Result<()> {
+    require!(
+        !encrypted_report.ciphertext.is_empty()
+            && encrypted_report.ciphertext.len() <= MAX_ENCRYPTED_SPY_REPORT_LEN,
+        PrivateStateError::InvalidReportHash
+    );
+    require!(
+        encrypted_report.nonce != [0; 12],
+        PrivateStateError::InvalidReportHash
+    );
     Ok(())
 }
 
@@ -562,7 +630,7 @@ mod tests {
         PrivateStateSeal {
             privacy_engine: PRIVACY_ENGINE_COMMITMENT_ONLY,
             ciphertext_schema: PRIVATE_CIPHERTEXT_SCHEMA_V1,
-            fhe_cluster: Pubkey::default(),
+            encryption_key_hash: [8; 32],
             decrypt_policy_hash: [9; 32],
         }
     }
@@ -620,15 +688,48 @@ mod tests {
     }
 
     #[test]
-    fn encrypt_fhe_seal_requires_cluster_and_policy() {
+    fn client_encryption_seal_requires_key_hash_and_policy() {
         let mut seal = test_seal();
-        seal.privacy_engine = PRIVACY_ENGINE_ENCRYPT_FHE;
+        seal.privacy_engine = PRIVACY_ENGINE_CLIENT_AES_GCM;
+        seal.encryption_key_hash = [0; 32];
         assert!(validate_private_state_seal(&seal).is_err());
 
-        seal.fhe_cluster = Pubkey::new_unique();
+        seal.encryption_key_hash = [7; 32];
         assert!(validate_private_state_seal(&seal).is_ok());
 
         seal.decrypt_policy_hash = [0; 32];
         assert!(validate_private_state_seal(&seal).is_err());
+    }
+
+    #[test]
+    fn encrypted_private_state_requires_ciphertext_and_salts() {
+        let ciphertext = b"encrypted-state".to_vec();
+        let digest = PrivateStateDigest {
+            state_hash: [1; 32],
+            encrypted_state_hash: [2; 32],
+            seal: test_seal(),
+            commitments: PrivateCommitments {
+                resources: [1; 32],
+                buildings: [2; 32],
+                research: [3; 32],
+                fleet: [4; 32],
+                defense: [5; 32],
+            },
+        };
+        let encrypted_state = EncryptedPrivateStateBlob {
+            nonce: [6; 12],
+            recovery_salt: [8; 16],
+            kdf_salt: [7; 16],
+            ciphertext,
+        };
+
+        assert!(validate_encrypted_private_state(&digest, &encrypted_state).is_ok());
+        let empty_state = EncryptedPrivateStateBlob {
+            nonce: [6; 12],
+            recovery_salt: [8; 16],
+            kdf_salt: [7; 16],
+            ciphertext: Vec::new(),
+        };
+        assert!(validate_encrypted_private_state(&digest, &empty_state).is_err());
     }
 }

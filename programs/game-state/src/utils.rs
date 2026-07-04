@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::error::GameStateError;
 use crate::state::*;
-use crate::token::{self, Mint, Token, TokenAccount};
+use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, Transfer};
 
 // =============================================
 // Helper Functions
@@ -125,6 +125,8 @@ pub(crate) fn research_seconds(next_level: u8, lab_level: u8, igr_network: u8) -
 }
 
 pub(crate) fn ship_build_seconds(ship_type: u8, quantity: u32, shipyard: u8, nanite: u8) -> i64 {
+    const SHIP_BASE_COST_FOR_FIVE_MINUTES: u64 = 1_000;
+    const MIN_BUILD_SECONDS: u64 = 300;
     let (m, c, d) = ship_cost(ship_type);
     let total = m
         .saturating_add(c)
@@ -135,7 +137,10 @@ pub(crate) fn ship_build_seconds(ship_type: u8, quantity: u32, shipyard: u8, nan
         .saturating_mul(2u64.pow(nanite as u32))
         .max(1);
 
-    (total / (1_000 * speed)).max(1) as i64
+    total
+        .saturating_mul(MIN_BUILD_SECONDS)
+        .saturating_div(SHIP_BASE_COST_FOR_FIVE_MINUTES.saturating_mul(speed))
+        .max(MIN_BUILD_SECONDS) as i64
 }
 
 pub(crate) fn defense_cost(defense_type: u8) -> (u64, u64, u64) {
@@ -160,6 +165,8 @@ pub(crate) fn defense_build_seconds(
     shipyard: u8,
     nanite: u8,
 ) -> i64 {
+    const DEFENSE_BASE_COST_FOR_FIVE_MINUTES: u64 = 2_000;
+    const MIN_BUILD_SECONDS: u64 = 300;
     let (m, c, d) = defense_cost(defense_type);
     let total = m
         .saturating_add(c)
@@ -168,7 +175,10 @@ pub(crate) fn defense_build_seconds(
     let speed = (shipyard.max(1) as u64)
         .saturating_mul(2u64.pow(nanite as u32))
         .max(1);
-    (total / (1_000 * speed)).max(1) as i64
+    total
+        .saturating_mul(MIN_BUILD_SECONDS)
+        .saturating_div(DEFENSE_BASE_COST_FOR_FIVE_MINUTES.saturating_mul(speed))
+        .max(MIN_BUILD_SECONDS) as i64
 }
 
 pub(crate) fn ship_cost(ship_type: u8) -> (u64, u64, u64) {
@@ -337,7 +347,7 @@ pub(crate) fn enforce_defense_requirements(defense_type: u8, planet: &PlanetStat
             require!(planet.shielding_technology >= 6, GameStateError::TechLocked);
             require!(planet.large_shield_dome == 0, GameStateError::TechLocked);
         }
-        8 | 9 => require!(planet.missile_silo >= 1, GameStateError::TechLocked),
+        8 | 9 => return err!(GameStateError::InvalidDefenseType),
         _ => return err!(GameStateError::InvalidDefenseType),
     }
     Ok(())
@@ -600,6 +610,8 @@ pub(crate) fn recalculate_rates(planet: &mut PlanetState) {
     };
 
     let solar_prod = mine_rate(planet.solar_plant, 20);
+    let satellite_prod =
+        solar_satellite_energy(planet.temperature).saturating_mul(planet.solar_satellite as u64);
     let fusion_prod = if planet.fusion_reactor == 0 {
         0
     } else {
@@ -607,7 +619,9 @@ pub(crate) fn recalculate_rates(planet: &mut PlanetState) {
         base.saturating_mul(100 + planet.energy_tech as u64 * 10) / 100
     };
 
-    planet.energy_production = solar_prod + fusion_prod;
+    planet.energy_production = solar_prod
+        .saturating_add(satellite_prod)
+        .saturating_add(fusion_prod);
     planet.energy_consumption = mine_rate(planet.metal_mine, 10)
         + mine_rate(planet.crystal_mine, 10)
         + mine_rate(planet.deuterium_synthesizer, 20);
@@ -617,9 +631,13 @@ pub(crate) fn recalculate_rates(planet: &mut PlanetState) {
     planet.deuterium_cap = store_cap(planet.deuterium_tank);
 }
 
+fn solar_satellite_energy(temperature: i16) -> u64 {
+    ((temperature as i32 + 160).max(6) as u64 / 6).max(1)
+}
+
 pub(crate) fn require_active_vault(
     vault_signer: Pubkey,
-    authorized_vault: &Account<AuthorizedVault>,
+    authorized_vault: &AuthorizedVault,
     planet_authority: Pubkey,
 ) -> Result<()> {
     require_keys_eq!(
@@ -743,10 +761,16 @@ pub(crate) fn create_planet_state<'info>(
         bump: coords_bump,
     };
 
-    let mut data = planet_coords_info.try_borrow_mut_data()?;
+    let mut encoded = Vec::with_capacity(PLANET_COORDS_SPACE);
     let disc = <PlanetCoordinates as anchor_lang::Discriminator>::DISCRIMINATOR;
-    data[..8].copy_from_slice(&disc);
-    coords_data.serialize(&mut &mut data[8..])?;
+    encoded.extend_from_slice(&disc);
+    coords_data.serialize(&mut encoded)?;
+    require!(
+        encoded.len() <= PLANET_COORDS_SPACE,
+        GameStateError::InvalidArgs
+    );
+    let mut data = planet_coords_info.try_borrow_mut_data()?;
+    data[..encoded.len()].copy_from_slice(&encoded);
 
     msg!("create_planet_state: wrote coords data");
     msg!("create_planet_state: about to write planet_state fields");
@@ -945,10 +969,16 @@ pub(crate) fn create_public_planet_state<'info>(
         authority,
         bump: coords_bump,
     };
-    let mut data = public_planet_coords_info.try_borrow_mut_data()?;
+    let mut encoded = Vec::with_capacity(PUBLIC_PLANET_COORDS_SPACE);
     let disc = <PublicPlanetCoordinates as anchor_lang::Discriminator>::DISCRIMINATOR;
-    data[..8].copy_from_slice(&disc);
-    coords_data.serialize(&mut &mut data[8..])?;
+    encoded.extend_from_slice(&disc);
+    coords_data.serialize(&mut encoded)?;
+    require!(
+        encoded.len() <= PUBLIC_PLANET_COORDS_SPACE,
+        GameStateError::InvalidArgs
+    );
+    let mut data = public_planet_coords_info.try_borrow_mut_data()?;
+    data[..encoded.len()].copy_from_slice(&encoded);
 
     public_planet_state.authority = authority;
     public_planet_state.player = player_profile.key();
@@ -1039,6 +1069,10 @@ pub(crate) fn start_research_planet(
     require!(tech_idx <= 9, GameStateError::InvalidTech);
     require!(planet.research_lab >= 1, GameStateError::LabTooLow);
     require!(
+        !(planet.build_queue_item == 11 && planet.build_finish_ts > 0),
+        GameStateError::ResearchQueueBusy
+    );
+    require!(
         planet.research_queue_item == 255,
         GameStateError::ResearchQueueBusy
     );
@@ -1077,6 +1111,14 @@ pub(crate) fn build_defense_planet(
 ) -> Result<()> {
     require!(quantity > 0, GameStateError::InvalidArgs);
     settle_resources(planet, now)?;
+    require!(
+        !(planet.build_queue_item == 7 && planet.build_finish_ts > 0),
+        GameStateError::ShipyardQueueBusy
+    );
+    require!(
+        planet.ship_build_item == 255,
+        GameStateError::ShipyardQueueBusy
+    );
     require!(
         planet.defense_build_item == 255,
         GameStateError::ShipyardQueueBusy
@@ -1189,6 +1231,34 @@ pub(crate) fn distance(
         .saturating_add(1_000)
 }
 
+pub(crate) fn base_flight_seconds(
+    from_galaxy: u16,
+    from_system: u16,
+    from_position: u8,
+    to_galaxy: u16,
+    to_system: u16,
+    to_position: u8,
+) -> u64 {
+    let galaxy_delta = (from_galaxy as i64 - to_galaxy as i64).abs() as u64;
+    let system_delta = (from_system as i64 - to_system as i64).abs() as u64;
+    let position_delta = (from_position as i64 - to_position as i64).abs() as u64;
+
+    if galaxy_delta > 0 {
+        86_400u64
+            .saturating_mul(galaxy_delta)
+            .saturating_add(3_600u64.saturating_mul(system_delta))
+            .saturating_add(300u64.saturating_mul(position_delta))
+            .max(86_400)
+    } else if system_delta > 0 {
+        3_600u64
+            .saturating_mul(system_delta)
+            .saturating_add(300u64.saturating_mul(position_delta))
+            .max(3_600)
+    } else {
+        300u64.saturating_mul(position_delta.max(1))
+    }
+}
+
 pub(crate) fn mission_flight_seconds(
     from_galaxy: u16,
     from_system: u16,
@@ -1200,8 +1270,9 @@ pub(crate) fn mission_flight_seconds(
     fleet_speed: u64,
     planet: &PlanetState,
 ) -> i64 {
+    const REFERENCE_EFFECTIVE_SPEED: u64 = 500_000;
     let sf = speed_factor.clamp(10, 100) as u64;
-    let dist = distance(
+    let base_seconds = base_flight_seconds(
         from_galaxy,
         from_system,
         from_position,
@@ -1217,7 +1288,8 @@ pub(crate) fn mission_flight_seconds(
         .saturating_mul(tech_bonus.max(100))
         / 100;
 
-    dist.saturating_mul(10_000)
+    base_seconds
+        .saturating_mul(REFERENCE_EFFECTIVE_SPEED)
         .checked_div(effective_speed.max(1))
         .unwrap_or(1)
         .max(1) as i64
@@ -1233,7 +1305,15 @@ pub(crate) fn build_ship_planet(
     settle_resources(planet, now)?;
     require!(planet.shipyard >= 1, GameStateError::ShipyardTooLow);
     require!(
+        !(planet.build_queue_item == 7 && planet.build_finish_ts > 0),
+        GameStateError::ShipyardQueueBusy
+    );
+    require!(
         planet.ship_build_item == 255,
+        GameStateError::ShipyardQueueBusy
+    );
+    require!(
+        planet.defense_build_item == 255,
         GameStateError::ShipyardQueueBusy
     );
 
@@ -1290,6 +1370,9 @@ pub(crate) fn finish_ship_build_now(planet: &mut PlanetState, now: i64) -> Resul
     let quantity = planet.ship_build_qty;
 
     planet.add_ship(ship_type, quantity)?;
+    if ship_type == 13 {
+        recalculate_rates(planet);
+    }
 
     planet.ship_build_item = 255;
     planet.ship_build_qty = 0;
@@ -1326,10 +1409,14 @@ pub(crate) fn burn_antimatter<'info>(
     );
 
     token::burn(
-        token_program,
-        antimatter_mint.to_account_info(),
-        user_antimatter_account.to_account_info(),
-        authority.to_account_info(),
+        CpiContext::new(
+            token_program.to_account_info(),
+            Burn {
+                mint: antimatter_mint.to_account_info(),
+                from: user_antimatter_account.to_account_info(),
+                authority: authority.to_account_info(),
+            },
+        ),
         amount,
     )
 }
@@ -1368,10 +1455,14 @@ pub(crate) fn transfer_antimatter<'info>(
     );
 
     token::transfer(
-        token_program,
-        user_antimatter_account.to_account_info(),
-        treasury_antimatter_account.to_account_info(),
-        authority.to_account_info(),
+        CpiContext::new(
+            token_program.to_account_info(),
+            Transfer {
+                from: user_antimatter_account.to_account_info(),
+                to: treasury_antimatter_account.to_account_info(),
+                authority: authority.to_account_info(),
+            },
+        ),
         amount,
     )
 }
@@ -1407,10 +1498,14 @@ pub(crate) fn transfer_usdc<'info>(
     );
 
     token::transfer(
-        token_program,
-        user_usdc_account.to_account_info(),
-        treasury_usdc_account.to_account_info(),
-        authority.to_account_info(),
+        CpiContext::new(
+            token_program.to_account_info(),
+            Transfer {
+                from: user_usdc_account.to_account_info(),
+                to: treasury_usdc_account.to_account_info(),
+                authority: authority.to_account_info(),
+            },
+        ),
         amount,
     )
 }
@@ -1551,6 +1646,41 @@ pub(crate) fn accelerate_ship_build_with_antimatter_inner<'info>(
         amount,
     )?;
     finish_ship_build_now(planet, now)?;
+    Ok(amount)
+}
+
+pub(crate) fn accelerate_defense_build_with_antimatter_inner<'info>(
+    planet: &mut Account<'info, PlanetState>,
+    antimatter_mint: &Account<'info, Mint>,
+    user_antimatter_account: &Account<'info, TokenAccount>,
+    authority: &Signer<'info>,
+    token_program: &Program<'info, Token>,
+) -> Result<u64> {
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        planet.defense_build_item != 255,
+        GameStateError::NoDefenseBuild
+    );
+    require!(
+        planet.defense_build_finish_ts > 0,
+        GameStateError::NoDefenseBuild
+    );
+
+    let seconds_left = planet.defense_build_finish_ts.saturating_sub(now);
+    require!(seconds_left > 0, GameStateError::NoAccelerationNeeded);
+
+    let amount = (seconds_left as u64)
+        .checked_mul(ANTIMATTER_SCALE)
+        .ok_or(GameStateError::AntimatterAmountOverflow)?;
+    burn_antimatter(
+        antimatter_mint,
+        user_antimatter_account,
+        authority,
+        token_program,
+        amount,
+    )?;
+    planet.defense_build_finish_ts = now;
+    finish_defense_build_planet(planet, now)?;
     Ok(amount)
 }
 
@@ -2062,8 +2192,6 @@ fn build_defender_stacks(destination: &PlanetState) -> Vec<CombatStack> {
         defense_stack(destination.plasma_turret, 5, destination),
         defense_stack(destination.small_shield_dome, 6, destination),
         defense_stack(destination.large_shield_dome, 7, destination),
-        defense_stack(destination.anti_ballistic_missile, 8, destination),
-        defense_stack(destination.interplanetary_missile, 9, destination),
     ] {
         if let Some(stack) = maybe_stack {
             stacks.push(stack);
@@ -2122,8 +2250,6 @@ fn apply_defender_survivors(
     destination.plasma_turret = defense_counts[5];
     destination.small_shield_dome = defense_counts[6];
     destination.large_shield_dome = defense_counts[7];
-    destination.anti_ballistic_missile = defense_counts[8];
-    destination.interplanetary_missile = defense_counts[9];
 }
 
 fn fleet_debris(destroyed_count: u32, metal_cost: u64, crystal_cost: u64) -> (u64, u64) {
@@ -2157,6 +2283,25 @@ fn plunder_resources(destination: &mut PlanetState, cargo_room: u64) -> (u64, u6
     (metal, crystal, deuterium)
 }
 
+fn collect_debris(
+    coords: &mut PlanetCoordinates,
+    cargo_room: u64,
+    recyclers: u32,
+) -> (u64, u64) {
+    if cargo_room == 0 || recyclers == 0 {
+        return (0, 0);
+    }
+
+    let metal = coords.debris_metal.min(cargo_room);
+    let after_metal = cargo_room.saturating_sub(metal);
+    let crystal = coords.debris_crystal.min(after_metal);
+
+    coords.debris_metal = coords.debris_metal.saturating_sub(metal);
+    coords.debris_crystal = coords.debris_crystal.saturating_sub(crystal);
+
+    (metal, crystal)
+}
+
 fn emit_battle_resolved(
     source_planet_key: Pubkey,
     destination_planet_key: Pubkey,
@@ -2174,6 +2319,8 @@ fn emit_battle_resolved(
     loot_deuterium: u64,
     debris_metal: u64,
     debris_crystal: u64,
+    recycled_metal: u64,
+    recycled_crystal: u64,
 ) {
     emit!(BattleResolvedEvent {
         source_planet: source_planet_key,
@@ -2197,6 +2344,8 @@ fn emit_battle_resolved(
         loot_deuterium,
         debris_metal,
         debris_crystal,
+        recycled_metal,
+        recycled_crystal,
         attacker_small_cargo: attacker_survivors[0],
         attacker_large_cargo: attacker_survivors[1],
         attacker_light_fighter: attacker_survivors[2],
@@ -2256,8 +2405,6 @@ fn planet_defense_points(planet: &PlanetState) -> u64 {
         + planet.plasma_turret as u64 * 3_000
         + planet.small_shield_dome as u64 * 2_000
         + planet.large_shield_dome as u64 * 10_000
-        + planet.anti_ballistic_missile as u64
-        + planet.interplanetary_missile as u64 * 12_000
 }
 
 fn effective_attack_protection_until(planet: &PlanetState) -> i64 {
@@ -2623,6 +2770,8 @@ pub(crate) fn resolve_attack_planets(
             0,
             debris_metal,
             debris_crystal,
+            0,
+            0,
         );
         source.clear_mission(slot);
         source.active_missions = source.active_missions.saturating_sub(1);
@@ -2655,24 +2804,37 @@ pub(crate) fn resolve_attack_planets(
     let mut cargo_metal = 0u64;
     let mut cargo_crystal = 0u64;
     let mut cargo_deuterium = 0u64;
+    let mut loot_metal = 0u64;
+    let mut loot_crystal = 0u64;
+    let mut loot_deuterium = 0u64;
+    let mut recycled_metal = 0u64;
+    let mut recycled_crystal = 0u64;
     if attacker_won {
-        let cargo_room = cargo_capacity(
+        let total_cargo_capacity = cargo_capacity(
             attacker_survivors[0],
             attacker_survivors[1],
             attacker_survivors[10],
             attacker_survivors[4],
             attacker_survivors[5],
-        )
-        .saturating_sub(
-            mission
-                .cargo_metal
-                .saturating_add(mission.cargo_crystal)
-                .saturating_add(mission.cargo_deuterium),
         );
-        let (loot_metal, loot_crystal, loot_deuterium) = plunder_resources(destination, cargo_room);
+        let launched_cargo = mission
+            .cargo_metal
+            .saturating_add(mission.cargo_crystal)
+            .saturating_add(mission.cargo_deuterium);
+        let cargo_room = total_cargo_capacity.saturating_sub(launched_cargo);
+        (loot_metal, loot_crystal, loot_deuterium) = plunder_resources(destination, cargo_room);
         cargo_metal = mission.cargo_metal.saturating_add(loot_metal);
         cargo_crystal = mission.cargo_crystal.saturating_add(loot_crystal);
         cargo_deuterium = mission.cargo_deuterium.saturating_add(loot_deuterium);
+
+        let cargo_used = cargo_metal
+            .saturating_add(cargo_crystal)
+            .saturating_add(cargo_deuterium);
+        let debris_room = total_cargo_capacity.saturating_sub(cargo_used);
+        (recycled_metal, recycled_crystal) =
+            collect_debris(destination_coords, debris_room, attacker_survivors[10]);
+        cargo_metal = cargo_metal.saturating_add(recycled_metal);
+        cargo_crystal = cargo_crystal.saturating_add(recycled_crystal);
     }
 
     source.missions[slot].small_cargo = attacker_survivors[0];
@@ -2708,11 +2870,13 @@ pub(crate) fn resolve_attack_planets(
         attacker_won,
         false,
         defender_survived_combat,
-        cargo_metal.saturating_sub(mission.cargo_metal),
-        cargo_crystal.saturating_sub(mission.cargo_crystal),
-        cargo_deuterium.saturating_sub(mission.cargo_deuterium),
+        loot_metal,
+        loot_crystal,
+        loot_deuterium,
         debris_metal,
         debris_crystal,
+        recycled_metal,
+        recycled_crystal,
     );
 
     Ok(())
@@ -3084,6 +3248,26 @@ mod tests {
             mission_flight_seconds(1, 1, 1, 300, 1, 1, 100, fleet_speed, &planet);
 
         assert!(one_galaxy_jump < many_galaxy_jumps);
+    }
+
+    #[test]
+    fn flight_time_has_slowed_tier_baselines() {
+        let mut planet = test_planet();
+        planet.astrophysics = 0;
+        let reference_speed = 5_000;
+
+        assert_eq!(
+            mission_flight_seconds(1, 1, 1, 1, 1, 2, 100, reference_speed, &planet),
+            300
+        );
+        assert_eq!(
+            mission_flight_seconds(1, 1, 1, 1, 2, 1, 100, reference_speed, &planet),
+            3_600
+        );
+        assert_eq!(
+            mission_flight_seconds(1, 1, 1, 2, 1, 1, 100, reference_speed, &planet),
+            86_400
+        );
     }
 
     #[test]
@@ -3492,6 +3676,44 @@ mod tests {
         assert_eq!(source.small_cargo, 1);
         assert_eq!(source.battlecruiser, 1);
         assert!(source.metal >= returning_metal);
+    }
+
+    #[test]
+    fn surviving_recyclers_collect_attack_debris() {
+        let mut source = test_planet();
+        source.authority = Pubkey::new_unique();
+        source.deuterium = 20_000;
+
+        let mut destination = test_planet();
+        destination.authority = Pubkey::new_unique();
+        destination.galaxy = 2;
+        destination.system = 2;
+        destination.position = 2;
+        destination.rocket_launcher = 1;
+
+        let mut coords = coords_for(&destination);
+        source.missions[0] = MissionState {
+            battlecruiser: 1,
+            recycler: 1,
+            ..attack_mission(&destination)
+        };
+        source.active_missions = 1;
+
+        resolve_attack_planets(
+            &mut source,
+            &mut destination,
+            &mut coords,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            0,
+            20,
+        )
+        .unwrap();
+
+        assert!(source.missions[0].attacker_won);
+        assert_eq!(source.missions[0].recycler, 1);
+        assert!(source.missions[0].cargo_metal + source.missions[0].cargo_crystal > 0);
+        assert_eq!(coords.debris_metal + coords.debris_crystal, 0);
     }
 
     #[test]

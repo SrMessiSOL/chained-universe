@@ -11,7 +11,7 @@ const {
 
 const RPC_URL = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const KEYPAIR_PATH = process.env.SOLANA_KEYPAIR;
-const PRIVATE_STATE_PROGRAM_ID = new PublicKey("HHF3gZKAGLL5GB633tz9U8aGT8HxAaPnSi2YZpgF7d4K");
+const PRIVATE_STATE_PROGRAM_ID = new PublicKey("P8gtUdeBpt6oG5a7LFQbxnHJbLyc9X9BhTj8iz8pSn1");
 
 const SPY_REPORT_REQUEST_DISCRIMINATOR = Buffer.from([174, 246, 219, 122, 153, 169, 29, 117]);
 const PUBLISH_SPY_REPORT_DISCRIMINATOR = Buffer.from([140, 217, 42, 129, 115, 74, 159, 167]);
