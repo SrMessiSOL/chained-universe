@@ -1110,6 +1110,10 @@ pub(crate) fn build_defense_planet(
     now: i64,
 ) -> Result<()> {
     require!(quantity > 0, GameStateError::InvalidArgs);
+    require!(
+        defense_type != 6 && defense_type != 7 || quantity == 1,
+        GameStateError::InvalidDefenseType
+    );
     settle_resources(planet, now)?;
     require!(
         !(planet.build_queue_item == 7 && planet.build_finish_ts > 0),
@@ -1732,6 +1736,29 @@ pub(crate) fn launch_fleet_planet(
                 + params.large_cargo
                 + params.recycler
                 + params.colony_ship
+                == 0,
+            GameStateError::InvalidMission
+        );
+        require!(
+            params.cargo_metal == 0 && params.cargo_crystal == 0 && params.cargo_deuterium == 0,
+            GameStateError::InvalidMission
+        );
+    }
+    if params.mission_type == MISSION_COLONIZE {
+        require!(params.colony_ship == 1, GameStateError::MissingColonyShip);
+        require!(
+            params.light_fighter
+                + params.heavy_fighter
+                + params.cruiser
+                + params.battleship
+                + params.battlecruiser
+                + params.bomber
+                + params.destroyer
+                + params.deathstar
+                + params.small_cargo
+                + params.large_cargo
+                + params.recycler
+                + params.espionage_probe
                 == 0,
             GameStateError::InvalidMission
         );

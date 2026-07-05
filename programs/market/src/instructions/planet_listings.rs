@@ -200,6 +200,12 @@ pub fn create_planet_listing(ctx: Context<CreatePlanetListing>, price_antimatter
     if counter.seller == Pubkey::default() {
         counter.seller = ctx.accounts.seller.key();
         counter.bump = ctx.bumps.seller_counter;
+    } else {
+        require_keys_eq!(
+            counter.seller,
+            ctx.accounts.seller.key(),
+            MarketError::Unauthorized
+        );
     }
 
     counter.next_offer_id = counter.next_offer_id.saturating_add(1);
@@ -229,6 +235,11 @@ pub fn create_planet_listing(ctx: Context<CreatePlanetListing>, price_antimatter
 
 pub fn cancel_planet_listing(ctx: Context<CancelPlanetListing>) -> Result<()> {
     require!(!ctx.accounts.listing.filled, MarketError::AlreadyFilled);
+    require_keys_eq!(
+        ctx.accounts.seller_counter.seller,
+        ctx.accounts.seller.key(),
+        MarketError::Unauthorized
+    );
     ctx.accounts.seller_counter.active_offers =
         ctx.accounts.seller_counter.active_offers.saturating_sub(1);
     msg!("Planet listing cancelled: listing_id={}", ctx.accounts.listing.listing_id);
@@ -237,6 +248,11 @@ pub fn cancel_planet_listing(ctx: Context<CancelPlanetListing>) -> Result<()> {
 
 pub fn buy_planet_listing(ctx: Context<BuyPlanetListing>) -> Result<()> {
     require!(!ctx.accounts.listing.filled, MarketError::AlreadyFilled);
+    require_keys_eq!(
+        ctx.accounts.seller_counter.seller,
+        ctx.accounts.listing.seller,
+        MarketError::Unauthorized
+    );
     require_keys_neq!(ctx.accounts.buyer.key(), ctx.accounts.listing.seller, MarketError::Unauthorized);
     validate_planet_authority(
         &ctx.accounts.planet.to_account_info(),

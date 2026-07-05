@@ -515,8 +515,20 @@ impl PlanetState {
             3 => self.gauss_cannon = self.gauss_cannon.saturating_add(quantity),
             4 => self.ion_cannon = self.ion_cannon.saturating_add(quantity),
             5 => self.plasma_turret = self.plasma_turret.saturating_add(quantity),
-            6 => self.small_shield_dome = self.small_shield_dome.saturating_add(quantity),
-            7 => self.large_shield_dome = self.large_shield_dome.saturating_add(quantity),
+            6 => {
+                require!(
+                    quantity == 1 && self.small_shield_dome == 0,
+                    GameStateError::InvalidDefenseType
+                );
+                self.small_shield_dome = 1;
+            }
+            7 => {
+                require!(
+                    quantity == 1 && self.large_shield_dome == 0,
+                    GameStateError::InvalidDefenseType
+                );
+                self.large_shield_dome = 1;
+            }
             8 => self.anti_ballistic_missile = self.anti_ballistic_missile.saturating_add(quantity),
             9 => self.interplanetary_missile = self.interplanetary_missile.saturating_add(quantity),
             _ => return Err(GameStateError::InvalidDefenseType.into()),
