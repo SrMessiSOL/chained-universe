@@ -281,34 +281,31 @@ pub fn initialize_homeworld(
 /// Creates both `planet_state` and `planet_coords` atomically.
 /// If `planet_coords` already exists the tx fails — client shows "slot occupied".
 pub fn initialize_colony(
-    ctx: Context<InitializePlanetVault>,
+    ctx: Context<InitializeColonyVault>,
     params: InitializeColonyParams,
+    slot: u8,
 ) -> Result<()> {
     let now = chain_now()?;
-    require!(
-        params.cargo_metal == 0
-            && params.cargo_crystal == 0
-            && params.cargo_deuterium == 0
-            && params.small_cargo == 0
-            && params.large_cargo == 0
-            && params.light_fighter == 0
-            && params.heavy_fighter == 0
-            && params.cruiser == 0
-            && params.battleship == 0
-            && params.battlecruiser == 0
-            && params.bomber == 0
-            && params.destroyer == 0
-            && params.deathstar == 0
-            && params.recycler == 0
-            && params.espionage_probe == 0
-            && params.solar_satellite == 0,
-        GameStateError::InvalidArgs
-    );
     require!(
         ctx.accounts.player_profile.planet_count > 0,
         GameStateError::InvalidArgs
     );
+    require!((slot as usize) < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
     let authority = ctx.accounts.player_profile.authority;
+    let mission = ctx.accounts.source_planet.mission(slot as usize);
+    require!(
+        mission.mission_type == MISSION_COLONIZE,
+        GameStateError::InvalidMission
+    );
+    require!(!mission.applied, GameStateError::AlreadyResolved);
+    require!(now >= mission.arrive_ts, GameStateError::MissionInFlight);
+    require!(mission.colony_ship == 1, GameStateError::MissingColonyShip);
+    require!(
+        mission.target_galaxy == params.galaxy
+            && mission.target_system == params.system
+            && mission.target_position == params.position,
+        GameStateError::InvalidDestination
+    );
     let authorized_vault_info = ctx.accounts.authorized_vault.to_account_info();
     let authorized_vault: AuthorizedVault =
         read_program_account(&authorized_vault_info, ctx.program_id)?;
@@ -387,9 +384,9 @@ pub fn initialize_colony(
         defense_build_item: 255,
         defense_build_qty: 0,
         defense_build_finish_ts: 0,
-        metal: params.cargo_metal,
-        crystal: params.cargo_crystal,
-        deuterium: params.cargo_deuterium,
+        metal: mission.cargo_metal,
+        crystal: mission.cargo_crystal,
+        deuterium: mission.cargo_deuterium,
         metal_hour: 33,
         crystal_hour: 22,
         deuterium_hour: 14,
@@ -405,20 +402,20 @@ pub fn initialize_colony(
         attack_unlocked_at: now.saturating_add(ATTACK_UNLOCK_SECONDS),
         last_attack_launch_ts: 0,
         last_attacked_ts: 0,
-        small_cargo: params.small_cargo,
-        large_cargo: params.large_cargo,
-        light_fighter: params.light_fighter,
-        heavy_fighter: params.heavy_fighter,
-        cruiser: params.cruiser,
-        battleship: params.battleship,
-        battlecruiser: params.battlecruiser,
-        bomber: params.bomber,
-        destroyer: params.destroyer,
-        deathstar: params.deathstar,
-        recycler: params.recycler,
-        espionage_probe: params.espionage_probe,
+        small_cargo: mission.small_cargo,
+        large_cargo: mission.large_cargo,
+        light_fighter: mission.light_fighter,
+        heavy_fighter: mission.heavy_fighter,
+        cruiser: mission.cruiser,
+        battleship: mission.battleship,
+        battlecruiser: mission.battlecruiser,
+        bomber: mission.bomber,
+        destroyer: mission.destroyer,
+        deathstar: mission.deathstar,
+        recycler: mission.recycler,
+        espionage_probe: mission.espionage_probe,
         colony_ship: 0,
-        solar_satellite: params.solar_satellite,
+        solar_satellite: 0,
         rocket_launcher: 0,
         light_laser: 0,
         heavy_laser: 0,
@@ -440,6 +437,19 @@ pub fn initialize_colony(
         &ctx.accounts.system_program.to_account_info(),
         ctx.bumps.planet_state,
         &planet_params,
+    )?;
+
+    ctx.accounts.source_planet.clear_mission(slot as usize);
+    ctx.accounts.source_planet.active_missions =
+        ctx.accounts.source_planet.active_missions.saturating_sub(1);
+
+    increment_quest_progress(
+        Some(&ctx.accounts.quest_progress.to_account_info()),
+        authority,
+        ctx.program_id,
+        now,
+        QuestProgressMetric::PlanetsColonized,
+        1,
     )
 }
 
@@ -5690,100 +5700,19 @@ pub fn resolve_espionage_vault(
     )
 }
 
-/// Wallet-signed: resolve a colonize mission.
-/// The colony planet + coord lock must already exist (created by `initialize_colony`).
-pub fn resolve_colonize(ctx: Context<ResolveColonize>, slot: u8, _now: i64) -> Result<()> {
-    // Verify the coords PDA matches the mission target
-    let mission = ctx.accounts.source_planet.mission(slot as usize);
-    require_keys_eq!(
-        ctx.accounts.colony_coords.planet,
-        ctx.accounts.colony_planet.key(),
-        GameStateError::InvalidDestination
-    );
-    require_keys_eq!(
-        ctx.accounts.colony_planet.authority,
-        ctx.accounts.source_planet.authority,
-        GameStateError::Unauthorized
-    );
-    require_keys_eq!(
-        ctx.accounts.colony_coords.authority,
-        ctx.accounts.source_planet.authority,
-        GameStateError::Unauthorized
-    );
-    require!(
-        ctx.accounts.colony_coords.galaxy == mission.target_galaxy
-            && ctx.accounts.colony_coords.system == mission.target_system
-            && ctx.accounts.colony_coords.position == mission.target_position,
-        GameStateError::InvalidDestination
-    );
-    let now = chain_now()?;
-    resolve_colonize_planet(&mut ctx.accounts.source_planet, slot as usize, now)?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.source_planet.authority,
-        ctx.program_id,
-        now,
-        QuestProgressMetric::PlanetsColonized,
-        1,
-    )
+/// Legacy two-step colonization is disabled.
+/// `initialize_colony` now proves and consumes the source mission slot atomically.
+pub fn resolve_colonize(_ctx: Context<ResolveColonize>, _slot: u8, _now: i64) -> Result<()> {
+    err!(GameStateError::InvalidMission)
 }
 
-/// Vault-signed: resolve a colonize mission.
+/// Legacy two-step colonization is disabled.
 pub fn resolve_colonize_vault(
-    ctx: Context<ResolveColonizeVault>,
-    slot: u8,
+    _ctx: Context<ResolveColonizeVault>,
+    _slot: u8,
     _now: i64,
 ) -> Result<()> {
-    msg!("resolve_colonize_vault: entered");
-    msg!("resolve_colonize_vault: slot={}", slot);
-
-    require_active_vault(
-        ctx.accounts.vault_signer.key(),
-        &ctx.accounts.authorized_vault,
-        ctx.accounts.source_planet.authority,
-    )?;
-    msg!("resolve_colonize_vault: vault ok");
-
-    let mission = ctx.accounts.source_planet.mission(slot as usize);
-    msg!("resolve_colonize_vault: loaded mission");
-
-    require_keys_eq!(
-        ctx.accounts.colony_coords.planet,
-        ctx.accounts.colony_planet.key(),
-        GameStateError::InvalidDestination
-    );
-    msg!("resolve_colonize_vault: planet key matches");
-
-    require_keys_eq!(
-        ctx.accounts.colony_planet.authority,
-        ctx.accounts.source_planet.authority,
-        GameStateError::Unauthorized
-    );
-    require_keys_eq!(
-        ctx.accounts.colony_coords.authority,
-        ctx.accounts.source_planet.authority,
-        GameStateError::Unauthorized
-    );
-    msg!("resolve_colonize_vault: authority matches");
-
-    require!(
-        ctx.accounts.colony_coords.galaxy == mission.target_galaxy
-            && ctx.accounts.colony_coords.system == mission.target_system
-            && ctx.accounts.colony_coords.position == mission.target_position,
-        GameStateError::InvalidDestination
-    );
-    msg!("resolve_colonize_vault: coords match mission");
-
-    let now = chain_now()?;
-    resolve_colonize_planet(&mut ctx.accounts.source_planet, slot as usize, now)?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.source_planet.authority,
-        ctx.program_id,
-        now,
-        QuestProgressMetric::PlanetsColonized,
-        1,
-    )
+    err!(GameStateError::InvalidMission)
 }
 
 /// Wallet-signed: transfer ownership of a single planet to a new authority.

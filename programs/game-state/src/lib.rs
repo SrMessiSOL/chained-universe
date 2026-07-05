@@ -77,10 +77,11 @@ pub mod game_state {
     }
 
     pub fn initialize_colony(
-        ctx: Context<InitializePlanetVault>,
+        ctx: Context<InitializeColonyVault>,
         params: InitializeColonyParams,
+        slot: u8,
     ) -> Result<()> {
-        instructions::initialize_colony(ctx, params)
+        instructions::initialize_colony(ctx, params, slot)
     }
 
     pub fn initialize_public_homeworld(

@@ -1746,26 +1746,6 @@ pub(crate) fn launch_fleet_planet(
     }
     if params.mission_type == MISSION_COLONIZE {
         require!(params.colony_ship == 1, GameStateError::MissingColonyShip);
-        require!(
-            params.light_fighter
-                + params.heavy_fighter
-                + params.cruiser
-                + params.battleship
-                + params.battlecruiser
-                + params.bomber
-                + params.destroyer
-                + params.deathstar
-                + params.small_cargo
-                + params.large_cargo
-                + params.recycler
-                + params.espionage_probe
-                == 0,
-            GameStateError::InvalidMission
-        );
-        require!(
-            params.cargo_metal == 0 && params.cargo_crystal == 0 && params.cargo_deuterium == 0,
-            GameStateError::InvalidMission
-        );
     }
 
     settle_resources(planet, now)?;

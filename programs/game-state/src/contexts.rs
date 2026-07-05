@@ -152,6 +152,48 @@ pub struct InitializePlanetVault<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeColonyVault<'info> {
+    #[account(mut)]
+    pub vault_signer: Signer<'info>,
+    /// CHECK: authority is read from player_profile.authority and only used as a seed/reference.
+    pub authority: UncheckedAccount<'info>,
+    /// CHECK: validated manually in initialize_colony.
+    pub authorized_vault: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Box<Account<'info, PlayerProfile>>,
+    #[account(
+        mut,
+        seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()],
+        bump = source_planet.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub source_planet: Box<Account<'info, PlanetState>>,
+    #[account(
+        init,
+        payer = vault_signer,
+        space = PLANET_STATE_SPACE,
+        seeds = [b"planet_state", authority.key().as_ref(), &player_profile.planet_count.to_le_bytes()],
+        bump
+    )]
+    pub planet_state: Box<Account<'info, PlanetState>>,
+    /// CHECK: verified and initialized manually inside `create_planet_state`.
+    #[account(mut)]
+    pub planet_coords: UncheckedAccount<'info>,
+    /// CHECK: PDA, owner, and contents are validated/initialized manually.
+    #[account(mut)]
+    pub quest_state: UncheckedAccount<'info>,
+    /// CHECK: PDA, owner, and contents are validated/initialized manually.
+    #[account(mut)]
+    pub quest_progress: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct InitializePublicPlanetVault<'info> {
     #[account(mut)]
     pub vault_signer: Signer<'info>,
