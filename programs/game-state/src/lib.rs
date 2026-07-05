@@ -110,6 +110,12 @@ pub mod game_state {
         instructions::initialize_quest_progress(ctx)
     }
 
+    pub fn initialize_quest_reward_targets(
+        ctx: Context<InitializeQuestRewardTargets>,
+    ) -> Result<()> {
+        instructions::initialize_quest_reward_targets(ctx)
+    }
+
     pub fn initialize_store_config(
         ctx: Context<InitializeStoreConfig>,
         enabled: bool,

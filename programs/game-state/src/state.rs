@@ -187,6 +187,35 @@ pub struct QuestProgressState {
 
 #[account]
 #[derive(InitSpace)]
+pub struct QuestRewardTargetState {
+    pub authority: Pubkey,
+    pub daily_epoch: i64,
+    pub weekly_epoch: i64,
+    pub monthly_epoch: i64,
+    pub daily_store_packs_planet: Pubkey,
+    pub weekly_store_packs_planet: Pubkey,
+    pub monthly_store_packs_planet: Pubkey,
+    pub daily_antimatter_planet: Pubkey,
+    pub weekly_antimatter_planet: Pubkey,
+    pub monthly_antimatter_planet: Pubkey,
+    pub daily_colonized_planet: Pubkey,
+    pub weekly_colonized_planet: Pubkey,
+    pub monthly_colonized_planet: Pubkey,
+    pub daily_attacks_planet: Pubkey,
+    pub weekly_attacks_planet: Pubkey,
+    pub monthly_attacks_planet: Pubkey,
+    pub daily_transports_planet: Pubkey,
+    pub weekly_transports_planet: Pubkey,
+    pub monthly_transports_planet: Pubkey,
+    pub daily_spy_planet: Pubkey,
+    pub weekly_spy_planet: Pubkey,
+    pub monthly_spy_planet: Pubkey,
+    pub last_updated_ts: i64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct PlanetState {
     pub authority: Pubkey,
     pub player: Pubkey,

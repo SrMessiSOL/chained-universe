@@ -448,11 +448,13 @@ pub fn initialize_colony(
 
     increment_quest_progress(
         Some(&ctx.accounts.quest_progress.to_account_info()),
+        ctx.remaining_accounts.first(),
         authority,
         ctx.program_id,
         now,
         QuestProgressMetric::PlanetsColonized,
         1,
+        Some(ctx.accounts.source_planet.key()),
     )
 }
 
@@ -661,6 +663,14 @@ pub fn initialize_quest_progress(ctx: Context<InitializeQuestProgress>) -> Resul
     Ok(())
 }
 
+pub fn initialize_quest_reward_targets(ctx: Context<InitializeQuestRewardTargets>) -> Result<()> {
+    let now = chain_now()?;
+    let mut targets = empty_quest_reward_targets(ctx.accounts.authority.key(), now);
+    targets.bump = ctx.bumps.quest_reward_targets;
+    ctx.accounts.quest_reward_targets.set_inner(targets);
+    Ok(())
+}
+
 pub fn daily_check_in(ctx: Context<QuestAction>) -> Result<()> {
     let now = chain_now()?;
     claim_daily_check_in(
@@ -704,6 +714,8 @@ pub fn claim_quest(ctx: Context<QuestAction>, period: u8, quest_id: u8) -> Resul
         &mut ctx.accounts.quest_state,
         &mut ctx.accounts.planet_state,
         &mut quest_progress,
+        ctx.remaining_accounts.first(),
+        ctx.program_id,
         period,
         quest_id,
         now,
@@ -747,6 +759,10 @@ pub fn claim_quest_vault(ctx: Context<QuestActionVault>, period: u8, quest_id: u
         &mut ctx.accounts.quest_state,
         &mut planet,
         &mut quest_progress,
+        ctx.remaining_accounts.first(),
+        planet_info.key(),
+        ctx.accounts.authority.key(),
+        ctx.program_id,
         period,
         quest_id,
         now,
@@ -3238,13 +3254,179 @@ fn empty_quest_progress(authority: Pubkey, now: i64) -> QuestProgressState {
     }
 }
 
+fn empty_quest_reward_targets(authority: Pubkey, now: i64) -> QuestRewardTargetState {
+    QuestRewardTargetState {
+        authority,
+        daily_epoch: now / 86_400,
+        weekly_epoch: now / 604_800,
+        monthly_epoch: now / 2_592_000,
+        daily_store_packs_planet: Pubkey::default(),
+        weekly_store_packs_planet: Pubkey::default(),
+        monthly_store_packs_planet: Pubkey::default(),
+        daily_antimatter_planet: Pubkey::default(),
+        weekly_antimatter_planet: Pubkey::default(),
+        monthly_antimatter_planet: Pubkey::default(),
+        daily_colonized_planet: Pubkey::default(),
+        weekly_colonized_planet: Pubkey::default(),
+        monthly_colonized_planet: Pubkey::default(),
+        daily_attacks_planet: Pubkey::default(),
+        weekly_attacks_planet: Pubkey::default(),
+        monthly_attacks_planet: Pubkey::default(),
+        daily_transports_planet: Pubkey::default(),
+        weekly_transports_planet: Pubkey::default(),
+        monthly_transports_planet: Pubkey::default(),
+        daily_spy_planet: Pubkey::default(),
+        weekly_spy_planet: Pubkey::default(),
+        monthly_spy_planet: Pubkey::default(),
+        last_updated_ts: now,
+        bump: 0,
+    }
+}
+
+fn sync_quest_reward_target_periods(targets: &mut QuestRewardTargetState, now: i64) {
+    let daily_epoch = now / 86_400;
+    let weekly_epoch = now / 604_800;
+    let monthly_epoch = now / 2_592_000;
+
+    if targets.daily_epoch != daily_epoch {
+        targets.daily_epoch = daily_epoch;
+        targets.daily_store_packs_planet = Pubkey::default();
+        targets.daily_antimatter_planet = Pubkey::default();
+        targets.daily_colonized_planet = Pubkey::default();
+        targets.daily_attacks_planet = Pubkey::default();
+        targets.daily_transports_planet = Pubkey::default();
+        targets.daily_spy_planet = Pubkey::default();
+    }
+    if targets.weekly_epoch != weekly_epoch {
+        targets.weekly_epoch = weekly_epoch;
+        targets.weekly_store_packs_planet = Pubkey::default();
+        targets.weekly_antimatter_planet = Pubkey::default();
+        targets.weekly_colonized_planet = Pubkey::default();
+        targets.weekly_attacks_planet = Pubkey::default();
+        targets.weekly_transports_planet = Pubkey::default();
+        targets.weekly_spy_planet = Pubkey::default();
+    }
+    if targets.monthly_epoch != monthly_epoch {
+        targets.monthly_epoch = monthly_epoch;
+        targets.monthly_store_packs_planet = Pubkey::default();
+        targets.monthly_antimatter_planet = Pubkey::default();
+        targets.monthly_colonized_planet = Pubkey::default();
+        targets.monthly_attacks_planet = Pubkey::default();
+        targets.monthly_transports_planet = Pubkey::default();
+        targets.monthly_spy_planet = Pubkey::default();
+    }
+}
+
+fn validate_quest_reward_targets_pda(
+    account_info: &AccountInfo,
+    authority: Pubkey,
+    program_id: &Pubkey,
+) -> Result<QuestRewardTargetState> {
+    let (expected, _) =
+        Pubkey::find_program_address(&[b"quest_reward_targets", authority.as_ref()], program_id);
+    require_keys_eq!(account_info.key(), expected, GameStateError::Unauthorized);
+    require!(
+        account_info.data_len() >= QUEST_REWARD_TARGET_STATE_SPACE,
+        GameStateError::InvalidArgs
+    );
+    let targets: QuestRewardTargetState = read_program_account(account_info, program_id)?;
+    require_keys_eq!(targets.authority, authority, GameStateError::Unauthorized);
+    Ok(targets)
+}
+
+fn quest_target_slot_mut<'a>(
+    targets: &'a mut QuestRewardTargetState,
+    period: u8,
+    metric: QuestProgressMetric,
+) -> Result<&'a mut Pubkey> {
+    match (period, metric) {
+        (1, QuestProgressMetric::StorePacksBought) => Ok(&mut targets.daily_store_packs_planet),
+        (2, QuestProgressMetric::StorePacksBought) => Ok(&mut targets.weekly_store_packs_planet),
+        (3, QuestProgressMetric::StorePacksBought) => Ok(&mut targets.monthly_store_packs_planet),
+        (1, QuestProgressMetric::AntimatterSpent) => Ok(&mut targets.daily_antimatter_planet),
+        (2, QuestProgressMetric::AntimatterSpent) => Ok(&mut targets.weekly_antimatter_planet),
+        (3, QuestProgressMetric::AntimatterSpent) => Ok(&mut targets.monthly_antimatter_planet),
+        (1, QuestProgressMetric::PlanetsColonized) => Ok(&mut targets.daily_colonized_planet),
+        (2, QuestProgressMetric::PlanetsColonized) => Ok(&mut targets.weekly_colonized_planet),
+        (3, QuestProgressMetric::PlanetsColonized) => Ok(&mut targets.monthly_colonized_planet),
+        (1, QuestProgressMetric::AttacksResolved) => Ok(&mut targets.daily_attacks_planet),
+        (2, QuestProgressMetric::AttacksResolved) => Ok(&mut targets.weekly_attacks_planet),
+        (3, QuestProgressMetric::AttacksResolved) => Ok(&mut targets.monthly_attacks_planet),
+        (1, QuestProgressMetric::TransportsResolved) => Ok(&mut targets.daily_transports_planet),
+        (2, QuestProgressMetric::TransportsResolved) => Ok(&mut targets.weekly_transports_planet),
+        (3, QuestProgressMetric::TransportsResolved) => Ok(&mut targets.monthly_transports_planet),
+        (1, QuestProgressMetric::SpyMissionsResolved) => Ok(&mut targets.daily_spy_planet),
+        (2, QuestProgressMetric::SpyMissionsResolved) => Ok(&mut targets.weekly_spy_planet),
+        (3, QuestProgressMetric::SpyMissionsResolved) => Ok(&mut targets.monthly_spy_planet),
+        _ => err!(GameStateError::InvalidQuest),
+    }
+}
+
+fn recurring_requirement_metric(req: QuestRequirement) -> QuestProgressMetric {
+    match req {
+        QuestRequirement::MetalMine(_)
+        | QuestRequirement::CrystalMine(_)
+        | QuestRequirement::MetalStorage(_)
+        | QuestRequirement::CrystalStorage(_)
+        | QuestRequirement::DeuteriumTank(_) => QuestProgressMetric::StorePacksBought,
+        QuestRequirement::SolarPlant(_)
+        | QuestRequirement::SmallCargo(_)
+        | QuestRequirement::LargeCargo(_) => QuestProgressMetric::TransportsResolved,
+        QuestRequirement::ResearchLab(_)
+        | QuestRequirement::ComputerTech(_)
+        | QuestRequirement::EspionageProbe(_)
+        | QuestRequirement::IgrNetwork(_) => QuestProgressMetric::SpyMissionsResolved,
+        QuestRequirement::Astrophysics(_) | QuestRequirement::ColonyShip(_) => {
+            QuestProgressMetric::PlanetsColonized
+        }
+        QuestRequirement::EnergyTech(_)
+        | QuestRequirement::DeuteriumSynthesizer(_)
+        | QuestRequirement::FusionReactor(_)
+        | QuestRequirement::RoboticsFactory(_)
+        | QuestRequirement::NaniteFactory(_)
+        | QuestRequirement::Shipyard(_)
+        | QuestRequirement::CombustionDrive(_)
+        | QuestRequirement::ImpulseDrive(_)
+        | QuestRequirement::HyperspaceDrive(_)
+        | QuestRequirement::WeaponsTechnology(_)
+        | QuestRequirement::ShieldingTechnology(_)
+        | QuestRequirement::ArmorTechnology(_) => QuestProgressMetric::AntimatterSpent,
+        _ => QuestProgressMetric::AttacksResolved,
+    }
+}
+
+fn lock_quest_reward_target(
+    targets_info: Option<&AccountInfo>,
+    authority: Pubkey,
+    program_id: &Pubkey,
+    now: i64,
+    metric: QuestProgressMetric,
+    planet_key: Pubkey,
+) -> Result<()> {
+    let Some(info) = targets_info else {
+        return Ok(());
+    };
+    let mut targets = validate_quest_reward_targets_pda(info, authority, program_id)?;
+    sync_quest_reward_target_periods(&mut targets, now);
+    for period in [1u8, 2, 3] {
+        let slot = quest_target_slot_mut(&mut targets, period, metric)?;
+        if *slot == Pubkey::default() {
+            *slot = planet_key;
+        }
+    }
+    targets.last_updated_ts = now;
+    write_program_account(info, &targets)
+}
+
 fn increment_quest_progress(
     progress_info: Option<&AccountInfo>,
+    targets_info: Option<&AccountInfo>,
     authority: Pubkey,
     program_id: &Pubkey,
     now: i64,
     metric: QuestProgressMetric,
     amount: u64,
+    source_planet: Option<Pubkey>,
 ) -> Result<()> {
     let Some(info) = progress_info else {
         return Ok(());
@@ -3308,7 +3490,11 @@ fn increment_quest_progress(
         }
     }
     progress.last_updated_ts = now;
-    write_program_account(info, &progress)
+    write_program_account(info, &progress)?;
+    if let Some(planet_key) = source_planet {
+        lock_quest_reward_target(targets_info, authority, program_id, now, metric, planet_key)?;
+    }
+    Ok(())
 }
 
 fn claim_daily_check_in(
@@ -3349,6 +3535,8 @@ fn claim_quest_reward(
     quest: &mut Account<QuestState>,
     planet: &mut Account<PlanetState>,
     progress: &mut QuestProgressState,
+    targets_info: Option<&AccountInfo>,
+    program_id: &Pubkey,
     period: u8,
     quest_id: u8,
     now: i64,
@@ -3387,6 +3575,16 @@ fn claim_quest_reward(
             recurring_quest_requirement_met(period, quest_id, epoch, &progress)?,
             GameStateError::QuestRequirementsNotMet
         );
+        validate_or_lock_quest_reward_target(
+            targets_info,
+            quest.authority,
+            planet.to_account_info().key(),
+            *program_id,
+            now,
+            period,
+            quest_id,
+            epoch,
+        )?;
     }
 
     let (metal, crystal, deuterium) = quest_reward(period, quest_id, epoch)?;
@@ -3451,6 +3649,10 @@ fn claim_quest_reward_live(
     quest: &mut Account<QuestState>,
     planet: &mut PlanetQuestFields,
     progress: &mut QuestProgressState,
+    targets_info: Option<&AccountInfo>,
+    planet_key: Pubkey,
+    authority: Pubkey,
+    program_id: &Pubkey,
     period: u8,
     quest_id: u8,
     now: i64,
@@ -3489,6 +3691,16 @@ fn claim_quest_reward_live(
             recurring_quest_requirement_met(period, quest_id, epoch, &progress)?,
             GameStateError::QuestRequirementsNotMet
         );
+        validate_or_lock_quest_reward_target(
+            targets_info,
+            authority,
+            planet_key,
+            *program_id,
+            now,
+            period,
+            quest_id,
+            epoch,
+        )?;
     }
 
     let (metal, crystal, deuterium) = quest_reward(period, quest_id, epoch)?;
@@ -3875,11 +4087,13 @@ pub fn purchase_store_pack(ctx: Context<PurchaseStorePack>, period: u8, pack_id:
     award_resources_live(&mut planet, now, pack.metal, pack.crystal, pack.deuterium)?;
     increment_quest_progress(
         ctx.remaining_accounts.first(),
+        ctx.remaining_accounts.get(1),
         ctx.accounts.authority.key(),
         ctx.program_id,
         now,
         QuestProgressMetric::StorePacksBought,
         1,
+        Some(planet_info.key()),
     )?;
     write_planet_deposit_fields(&planet_info, &planet)
 }
@@ -5198,6 +5412,38 @@ fn recurring_quest_requirement_met(
     Ok(current >= required)
 }
 
+fn validate_or_lock_quest_reward_target(
+    targets_info: Option<&AccountInfo>,
+    authority: Pubkey,
+    claiming_planet: Pubkey,
+    program_id: Pubkey,
+    now: i64,
+    period: u8,
+    quest_id: u8,
+    epoch: i64,
+) -> Result<()> {
+    let Some(info) = targets_info else {
+        return Ok(());
+    };
+    let quest = rotating_quest(period, quest_id, epoch)?;
+    let metric = recurring_requirement_metric(quest.req);
+    let mut targets = validate_quest_reward_targets_pda(info, authority, &program_id)?;
+    sync_quest_reward_target_periods(&mut targets, now);
+    let slot = quest_target_slot_mut(&mut targets, period, metric)?;
+    if *slot == Pubkey::default() {
+        *slot = claiming_planet;
+        targets.last_updated_ts = now;
+        write_program_account(info, &targets)?;
+        return Ok(());
+    }
+    require_keys_eq!(
+        *slot,
+        claiming_planet,
+        GameStateError::WrongQuestRewardPlanet
+    );
+    Ok(())
+}
+
 fn quest_reward(period: u8, quest_id: u8, epoch: i64) -> Result<(u64, u64, u64)> {
     if period != 0 {
         let quest = rotating_quest(period, quest_id, epoch)?;
@@ -5678,11 +5924,13 @@ pub fn resolve_transport(ctx: Context<ResolveTransport>, slot: u8, _now: i64) ->
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.first(),
+            ctx.remaining_accounts.get(1),
             ctx.accounts.authority.key(),
             ctx.program_id,
             now,
             QuestProgressMetric::TransportsResolved,
             1,
+            Some(ctx.accounts.source_planet.key()),
         )?;
     }
     Ok(())
@@ -5714,11 +5962,13 @@ pub fn resolve_transport_vault(
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.first(),
+            ctx.remaining_accounts.get(1),
             ctx.accounts.source_planet.authority,
             ctx.program_id,
             now,
             QuestProgressMetric::TransportsResolved,
             1,
+            Some(ctx.accounts.source_planet.key()),
         )?;
     }
     Ok(())
@@ -5739,11 +5989,13 @@ pub fn resolve_transport_empty(ctx: Context<MutatePlanetState>, slot: u8, _now: 
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.get(1),
+            ctx.remaining_accounts.get(2),
             ctx.accounts.authority.key(),
             ctx.program_id,
             now,
             QuestProgressMetric::TransportsResolved,
             1,
+            Some(ctx.accounts.planet_state.key()),
         )?;
     }
     Ok(())
@@ -5777,11 +6029,13 @@ pub fn resolve_transport_empty_vault(
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.get(1),
+            ctx.remaining_accounts.get(2),
             authority,
             ctx.program_id,
             now,
             QuestProgressMetric::TransportsResolved,
             1,
+            Some(planet_info.key()),
         )?;
     }
     Ok(())
@@ -5806,11 +6060,13 @@ pub fn resolve_attack(ctx: Context<ResolveAttack>, slot: u8, _now: i64) -> Resul
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.first(),
+            ctx.remaining_accounts.get(1),
             ctx.accounts.authority.key(),
             ctx.program_id,
             now,
             QuestProgressMetric::AttacksResolved,
             1,
+            Some(ctx.accounts.source_planet.key()),
         )?;
     }
     Ok(())
@@ -5840,11 +6096,13 @@ pub fn resolve_attack_vault(ctx: Context<ResolveAttackVault>, slot: u8, _now: i6
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.first(),
+            ctx.remaining_accounts.get(1),
             ctx.accounts.source_planet.authority,
             ctx.program_id,
             now,
             QuestProgressMetric::AttacksResolved,
             1,
+            Some(ctx.accounts.source_planet.key()),
         )?;
     }
     Ok(())
@@ -5868,11 +6126,13 @@ pub fn resolve_espionage(ctx: Context<ResolveAttack>, slot: u8, _now: i64) -> Re
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.first(),
+            ctx.remaining_accounts.get(1),
             ctx.accounts.authority.key(),
             ctx.program_id,
             now,
             QuestProgressMetric::SpyMissionsResolved,
             1,
+            Some(ctx.accounts.source_planet.key()),
         )?;
     }
     Ok(())
@@ -5905,11 +6165,13 @@ pub fn resolve_espionage_vault(
     if count_progress {
         increment_quest_progress(
             ctx.remaining_accounts.first(),
+            ctx.remaining_accounts.get(1),
             ctx.accounts.source_planet.authority,
             ctx.program_id,
             now,
             QuestProgressMetric::SpyMissionsResolved,
             1,
+            Some(ctx.accounts.source_planet.key()),
         )?;
     }
     Ok(())
@@ -6033,11 +6295,13 @@ pub fn accelerate_build_with_antimatter(ctx: Context<UseAntimatter>) -> Result<(
     let now = chain_now()?;
     increment_quest_progress(
         ctx.remaining_accounts.first(),
+        ctx.remaining_accounts.get(1),
         ctx.accounts.authority.key(),
         ctx.program_id,
         now,
         QuestProgressMetric::AntimatterSpent,
         amount,
+        Some(ctx.accounts.planet_state.key()),
     )
 }
 
@@ -6058,11 +6322,13 @@ pub fn accelerate_research_with_antimatter(ctx: Context<UseAntimatter>) -> Resul
     let now = chain_now()?;
     increment_quest_progress(
         ctx.remaining_accounts.first(),
+        ctx.remaining_accounts.get(1),
         ctx.accounts.authority.key(),
         ctx.program_id,
         now,
         QuestProgressMetric::AntimatterSpent,
         amount,
+        Some(ctx.accounts.planet_state.key()),
     )
 }
 
@@ -6083,11 +6349,13 @@ pub fn accelerate_ship_build_with_antimatter(ctx: Context<UseAntimatter>) -> Res
     let now = chain_now()?;
     increment_quest_progress(
         ctx.remaining_accounts.first(),
+        ctx.remaining_accounts.get(1),
         ctx.accounts.authority.key(),
         ctx.program_id,
         now,
         QuestProgressMetric::AntimatterSpent,
         amount,
+        Some(ctx.accounts.planet_state.key()),
     )
 }
 
@@ -6108,11 +6376,13 @@ pub fn accelerate_defense_build_with_antimatter(ctx: Context<UseAntimatter>) -> 
     let now = chain_now()?;
     increment_quest_progress(
         ctx.remaining_accounts.first(),
+        ctx.remaining_accounts.get(1),
         ctx.accounts.authority.key(),
         ctx.program_id,
         now,
         QuestProgressMetric::AntimatterSpent,
         amount,
+        Some(ctx.accounts.planet_state.key()),
     )
 }
 
@@ -6140,11 +6410,13 @@ pub fn accelerate_mission_with_antimatter(
     let now = chain_now()?;
     increment_quest_progress(
         ctx.remaining_accounts.first(),
+        ctx.remaining_accounts.get(1),
         ctx.accounts.authority.key(),
         ctx.program_id,
         now,
         QuestProgressMetric::AntimatterSpent,
         amount,
+        Some(ctx.accounts.planet_state.key()),
     )
 }
 

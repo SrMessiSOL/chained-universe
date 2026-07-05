@@ -281,6 +281,27 @@ pub struct InitializeQuestProgress<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeQuestRewardTargets<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Account<'info, PlayerProfile>,
+    #[account(
+        init,
+        payer = authority,
+        space = QUEST_REWARD_TARGET_STATE_SPACE,
+        seeds = [b"quest_reward_targets", authority.key().as_ref()],
+        bump
+    )]
+    pub quest_reward_targets: Account<'info, QuestRewardTargetState>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct QuestAction<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,

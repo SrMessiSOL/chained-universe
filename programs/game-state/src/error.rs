@@ -85,4 +85,5 @@ pub enum GameStateError {
     InvalidAllianceBuilding,
     AllianceTreasuryNotEnoughResources,
     LegacyPlanetStateDisabled,
+    WrongQuestRewardPlanet,
 }
