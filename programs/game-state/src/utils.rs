@@ -2290,11 +2290,7 @@ fn plunder_resources(destination: &mut PlanetState, cargo_room: u64) -> (u64, u6
     (metal, crystal, deuterium)
 }
 
-fn collect_debris(
-    coords: &mut PlanetCoordinates,
-    cargo_room: u64,
-    recyclers: u32,
-) -> (u64, u64) {
+fn collect_debris(coords: &mut PlanetCoordinates, cargo_room: u64, recyclers: u32) -> (u64, u64) {
     if cargo_room == 0 || recyclers == 0 {
         return (0, 0);
     }
@@ -3001,6 +2997,8 @@ pub(crate) fn resolve_transport_empty_slot(
     source: &mut PlanetState,
     slot: usize,
     now: i64,
+    destination_coords_info: Option<&AccountInfo>,
+    program_id: &Pubkey,
 ) -> Result<()> {
     require!(slot < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
 
@@ -3008,6 +3006,30 @@ pub(crate) fn resolve_transport_empty_slot(
     require!(
         mission.mission_type == MISSION_TRANSPORT,
         GameStateError::InvalidMission
+    );
+    let destination_coords_info =
+        destination_coords_info.ok_or(GameStateError::InvalidDestination)?;
+    let galaxy_bytes = mission.target_galaxy.to_le_bytes();
+    let system_bytes = mission.target_system.to_le_bytes();
+    let position_bytes = [mission.target_position];
+    let (expected_coords, _) = Pubkey::find_program_address(
+        &[
+            b"planet_coords",
+            &galaxy_bytes,
+            &system_bytes,
+            &position_bytes,
+        ],
+        program_id,
+    );
+    require_keys_eq!(
+        destination_coords_info.key(),
+        expected_coords,
+        GameStateError::InvalidDestination
+    );
+    require!(
+        destination_coords_info.lamports() == 0
+            && destination_coords_info.try_borrow_data()?.is_empty(),
+        GameStateError::InvalidDestination
     );
 
     if !mission.applied {

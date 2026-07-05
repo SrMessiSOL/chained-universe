@@ -290,7 +290,10 @@ pub fn initialize_colony(
         ctx.accounts.player_profile.planet_count > 0,
         GameStateError::InvalidArgs
     );
-    require!((slot as usize) < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    require!(
+        (slot as usize) < MAX_MISSIONS,
+        GameStateError::InvalidMissionSlot
+    );
     let authority = ctx.accounts.player_profile.authority;
     let mission = ctx.accounts.source_planet.mission(slot as usize);
     require!(
@@ -554,7 +557,11 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         write_program_account(quest_state_info, &quest_state)?;
     } else {
         let quest_state: QuestState = read_program_account(quest_state_info, program_id)?;
-        require_keys_eq!(quest_state.authority, authority, GameStateError::Unauthorized);
+        require_keys_eq!(
+            quest_state.authority,
+            authority,
+            GameStateError::Unauthorized
+        );
     }
 
     let (expected_quest_progress, quest_progress_bump) =
@@ -573,7 +580,11 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
                     from: payer_info.clone(),
                     to: quest_progress_info.clone(),
                 },
-                &[&[b"quest_progress", authority.as_ref(), &[quest_progress_bump]]],
+                &[&[
+                    b"quest_progress",
+                    authority.as_ref(),
+                    &[quest_progress_bump],
+                ]],
             ),
             rent,
             QUEST_PROGRESS_STATE_SPACE as u64,
@@ -1061,8 +1072,13 @@ pub fn deposit_alliance_resources(
     let game_config: GameConfig = read_program_account(&game_config_info, ctx.program_id)?;
     let store_config: StoreConfig = read_program_account(&store_config_info, ctx.program_id)?;
 
-    let (expected_membership, _) =
-        Pubkey::find_program_address(&[b"alliance_membership", ctx.accounts.authority.key().as_ref()], ctx.program_id);
+    let (expected_membership, _) = Pubkey::find_program_address(
+        &[
+            b"alliance_membership",
+            ctx.accounts.authority.key().as_ref(),
+        ],
+        ctx.program_id,
+    );
     require_keys_eq!(
         ctx.accounts.membership.key(),
         expected_membership,
@@ -1077,8 +1093,7 @@ pub fn deposit_alliance_resources(
         expected_treasury,
         GameStateError::InvalidAllianceMember
     );
-    let (expected_game_config, _) =
-        Pubkey::find_program_address(&[b"game_config"], ctx.program_id);
+    let (expected_game_config, _) = Pubkey::find_program_address(&[b"game_config"], ctx.program_id);
     require_keys_eq!(
         ctx.accounts.game_config.key(),
         expected_game_config,
@@ -1219,14 +1234,18 @@ pub fn deposit_alliance_resources(
     alliance_treasury.crystal = alliance_treasury.crystal.saturating_add(crystal);
     alliance_treasury.deuterium = alliance_treasury.deuterium.saturating_add(deuterium);
     alliance_treasury.antimatter = alliance_treasury.antimatter.saturating_add(antimatter);
-    alliance_treasury.total_metal_deposited =
-        alliance_treasury.total_metal_deposited.saturating_add(metal);
-    alliance_treasury.total_crystal_deposited =
-        alliance_treasury.total_crystal_deposited.saturating_add(crystal);
-    alliance_treasury.total_deuterium_deposited =
-        alliance_treasury.total_deuterium_deposited.saturating_add(deuterium);
-    alliance_treasury.total_antimatter_deposited =
-        alliance_treasury.total_antimatter_deposited.saturating_add(antimatter);
+    alliance_treasury.total_metal_deposited = alliance_treasury
+        .total_metal_deposited
+        .saturating_add(metal);
+    alliance_treasury.total_crystal_deposited = alliance_treasury
+        .total_crystal_deposited
+        .saturating_add(crystal);
+    alliance_treasury.total_deuterium_deposited = alliance_treasury
+        .total_deuterium_deposited
+        .saturating_add(deuterium);
+    alliance_treasury.total_antimatter_deposited = alliance_treasury
+        .total_antimatter_deposited
+        .saturating_add(antimatter);
 
     match period {
         1 => membership.daily_claimed_mask |= bit,
@@ -1235,19 +1254,14 @@ pub fn deposit_alliance_resources(
         _ => unreachable!(),
     }
 
-    let resource_xp = metal
-        .saturating_add(crystal)
-        .saturating_add(deuterium)
+    let resource_xp = metal.saturating_add(crystal).saturating_add(deuterium)
         / ALLIANCE_DEPOSIT_XP_PER_RESOURCE_UNIT;
     let antimatter_xp = antimatter / ALLIANCE_DEPOSIT_XP_PER_ANTIMATTER_UNIT;
     let base_xp = mission
         .xp
         .saturating_add(resource_xp)
         .saturating_add(antimatter_xp);
-    let xp = apply_bps_bonus(
-        base_xp,
-        alliance_logistics_xp_bonus_bps(&alliance_treasury),
-    );
+    let xp = apply_bps_bonus(base_xp, alliance_logistics_xp_bonus_bps(&alliance_treasury));
     alliance.xp = alliance.xp.saturating_add(xp);
     alliance.total_missions_completed = alliance.total_missions_completed.saturating_add(1);
     refresh_alliance_level(&mut alliance);
@@ -1275,7 +1289,8 @@ pub fn deposit_alliance_resources_vault(
     let game_config_info = ctx.accounts.game_config.to_account_info();
     let store_config_info = ctx.accounts.store_config.to_account_info();
 
-    let authorized_vault: AuthorizedVault = read_program_account(&authorized_vault_info, ctx.program_id)?;
+    let authorized_vault: AuthorizedVault =
+        read_program_account(&authorized_vault_info, ctx.program_id)?;
     let mut alliance: AllianceState = read_program_account(&alliance_info, ctx.program_id)?;
     let mut membership: AllianceMembership =
         read_program_account(&membership_info, ctx.program_id)?;
@@ -1285,15 +1300,22 @@ pub fn deposit_alliance_resources_vault(
     let game_config: GameConfig = read_program_account(&game_config_info, ctx.program_id)?;
     let store_config: StoreConfig = read_program_account(&store_config_info, ctx.program_id)?;
 
-    let (expected_authorized_vault, _) =
-        Pubkey::find_program_address(&[b"authorized_vault", ctx.accounts.authority.key().as_ref()], ctx.program_id);
+    let (expected_authorized_vault, _) = Pubkey::find_program_address(
+        &[b"authorized_vault", ctx.accounts.authority.key().as_ref()],
+        ctx.program_id,
+    );
     require_keys_eq!(
         ctx.accounts.authorized_vault.key(),
         expected_authorized_vault,
         GameStateError::InvalidVaultAuthorization
     );
-    let (expected_membership, _) =
-        Pubkey::find_program_address(&[b"alliance_membership", ctx.accounts.authority.key().as_ref()], ctx.program_id);
+    let (expected_membership, _) = Pubkey::find_program_address(
+        &[
+            b"alliance_membership",
+            ctx.accounts.authority.key().as_ref(),
+        ],
+        ctx.program_id,
+    );
     require_keys_eq!(
         ctx.accounts.membership.key(),
         expected_membership,
@@ -1308,8 +1330,7 @@ pub fn deposit_alliance_resources_vault(
         expected_treasury,
         GameStateError::InvalidAllianceMember
     );
-    let (expected_game_config, _) =
-        Pubkey::find_program_address(&[b"game_config"], ctx.program_id);
+    let (expected_game_config, _) = Pubkey::find_program_address(&[b"game_config"], ctx.program_id);
     require_keys_eq!(
         ctx.accounts.game_config.key(),
         expected_game_config,
@@ -1476,23 +1497,16 @@ pub fn deposit_alliance_resources_vault(
         _ => unreachable!(),
     }
 
-    let resource_xp = metal
-        .saturating_add(crystal)
-        .saturating_add(deuterium)
+    let resource_xp = metal.saturating_add(crystal).saturating_add(deuterium)
         / ALLIANCE_DEPOSIT_XP_PER_RESOURCE_UNIT;
     let antimatter_xp = antimatter / ALLIANCE_DEPOSIT_XP_PER_ANTIMATTER_UNIT;
     let base_xp = mission
         .xp
         .saturating_add(resource_xp)
         .saturating_add(antimatter_xp);
-    let xp = apply_bps_bonus(
-        base_xp,
-        alliance_logistics_xp_bonus_bps(&alliance_treasury),
-    );
+    let xp = apply_bps_bonus(base_xp, alliance_logistics_xp_bonus_bps(&alliance_treasury));
     alliance.xp = alliance.xp.saturating_add(xp);
-    alliance.total_missions_completed = alliance
-        .total_missions_completed
-        .saturating_add(1);
+    alliance.total_missions_completed = alliance.total_missions_completed.saturating_add(1);
     refresh_alliance_level(&mut alliance);
 
     write_program_account(&alliance_info, &alliance)?;
@@ -1516,11 +1530,7 @@ fn read_program_account<T: AccountDeserialize>(
 }
 
 fn read_token_account<T: AccountDeserialize>(account_info: &AccountInfo) -> Result<T> {
-    require_keys_eq!(
-        *account_info.owner,
-        token::ID,
-        GameStateError::Unauthorized
-    );
+    require_keys_eq!(*account_info.owner, token::ID, GameStateError::Unauthorized);
     let data = account_info.try_borrow_data()?;
     T::try_deserialize(&mut &data[..])
 }
@@ -1775,7 +1785,11 @@ fn write_planet_deposit_fields(
     write_u64_at(&mut data, PLANET_METAL_OFFSET, planet.metal);
     write_u64_at(&mut data, PLANET_CRYSTAL_OFFSET, planet.crystal);
     write_u64_at(&mut data, PLANET_DEUTERIUM_OFFSET, planet.deuterium);
-    write_i64_at(&mut data, PLANET_LAST_UPDATE_TS_OFFSET, planet.last_update_ts);
+    write_i64_at(
+        &mut data,
+        PLANET_LAST_UPDATE_TS_OFFSET,
+        planet.last_update_ts,
+    );
     Ok(())
 }
 
@@ -1918,19 +1932,47 @@ fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFie
         planet.deuterium_synthesizer,
     );
     write_u8_at(&mut data, PLANET_SOLAR_PLANT_OFFSET, planet.solar_plant);
-    write_u8_at(&mut data, PLANET_FUSION_REACTOR_OFFSET, planet.fusion_reactor);
-    write_u8_at(&mut data, PLANET_ROBOTICS_FACTORY_OFFSET, planet.robotics_factory);
-    write_u8_at(&mut data, PLANET_NANITE_FACTORY_OFFSET, planet.nanite_factory);
+    write_u8_at(
+        &mut data,
+        PLANET_FUSION_REACTOR_OFFSET,
+        planet.fusion_reactor,
+    );
+    write_u8_at(
+        &mut data,
+        PLANET_ROBOTICS_FACTORY_OFFSET,
+        planet.robotics_factory,
+    );
+    write_u8_at(
+        &mut data,
+        PLANET_NANITE_FACTORY_OFFSET,
+        planet.nanite_factory,
+    );
     write_u8_at(&mut data, PLANET_SHIPYARD_OFFSET, planet.shipyard);
     write_u8_at(&mut data, PLANET_METAL_STORAGE_OFFSET, planet.metal_storage);
-    write_u8_at(&mut data, PLANET_CRYSTAL_STORAGE_OFFSET, planet.crystal_storage);
-    write_u8_at(&mut data, PLANET_DEUTERIUM_TANK_OFFSET, planet.deuterium_tank);
+    write_u8_at(
+        &mut data,
+        PLANET_CRYSTAL_STORAGE_OFFSET,
+        planet.crystal_storage,
+    );
+    write_u8_at(
+        &mut data,
+        PLANET_DEUTERIUM_TANK_OFFSET,
+        planet.deuterium_tank,
+    );
     write_u8_at(&mut data, PLANET_RESEARCH_LAB_OFFSET, planet.research_lab);
     write_u8_at(&mut data, PLANET_MISSILE_SILO_OFFSET, planet.missile_silo);
     write_u8_at(&mut data, PLANET_ENERGY_TECH_OFFSET, planet.energy_tech);
-    write_u8_at(&mut data, PLANET_COMBUSTION_DRIVE_OFFSET, planet.combustion_drive);
+    write_u8_at(
+        &mut data,
+        PLANET_COMBUSTION_DRIVE_OFFSET,
+        planet.combustion_drive,
+    );
     write_u8_at(&mut data, PLANET_IMPULSE_DRIVE_OFFSET, planet.impulse_drive);
-    write_u8_at(&mut data, PLANET_HYPERSPACE_DRIVE_OFFSET, planet.hyperspace_drive);
+    write_u8_at(
+        &mut data,
+        PLANET_HYPERSPACE_DRIVE_OFFSET,
+        planet.hyperspace_drive,
+    );
     write_u8_at(&mut data, PLANET_COMPUTER_TECH_OFFSET, planet.computer_tech);
     write_u8_at(&mut data, PLANET_ASTROPHYSICS_OFFSET, planet.astrophysics);
     write_u8_at(&mut data, PLANET_IGR_NETWORK_OFFSET, planet.igr_network);
@@ -1964,8 +2006,16 @@ fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFie
         PLANET_RESEARCH_FINISH_TS_OFFSET,
         planet.research_finish_ts,
     );
-    write_u64_at(&mut data, PLANET_METAL_HOUR_OFFSET, planet.deposit.metal_hour);
-    write_u64_at(&mut data, PLANET_CRYSTAL_HOUR_OFFSET, planet.deposit.crystal_hour);
+    write_u64_at(
+        &mut data,
+        PLANET_METAL_HOUR_OFFSET,
+        planet.deposit.metal_hour,
+    );
+    write_u64_at(
+        &mut data,
+        PLANET_CRYSTAL_HOUR_OFFSET,
+        planet.deposit.crystal_hour,
+    );
     write_u64_at(
         &mut data,
         PLANET_DEUTERIUM_HOUR_OFFSET,
@@ -1982,19 +2032,31 @@ fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFie
         planet.deposit.energy_consumption,
     );
     write_u64_at(&mut data, PLANET_METAL_CAP_OFFSET, planet.deposit.metal_cap);
-    write_u64_at(&mut data, PLANET_CRYSTAL_CAP_OFFSET, planet.deposit.crystal_cap);
+    write_u64_at(
+        &mut data,
+        PLANET_CRYSTAL_CAP_OFFSET,
+        planet.deposit.crystal_cap,
+    );
     write_u64_at(
         &mut data,
         PLANET_DEUTERIUM_CAP_OFFSET,
         planet.deposit.deuterium_cap,
     );
-    write_u8_at(&mut data, PLANET_BUILD_QUEUE_ITEM_OFFSET, planet.build_queue_item);
+    write_u8_at(
+        &mut data,
+        PLANET_BUILD_QUEUE_ITEM_OFFSET,
+        planet.build_queue_item,
+    );
     write_u8_at(
         &mut data,
         PLANET_BUILD_QUEUE_TARGET_OFFSET,
         planet.build_queue_target,
     );
-    write_i64_at(&mut data, PLANET_BUILD_FINISH_TS_OFFSET, planet.build_finish_ts);
+    write_i64_at(
+        &mut data,
+        PLANET_BUILD_FINISH_TS_OFFSET,
+        planet.build_finish_ts,
+    );
     write_u32_at(&mut data, PLANET_SMALL_CARGO_OFFSET, planet.small_cargo);
     write_u32_at(&mut data, PLANET_LARGE_CARGO_OFFSET, planet.large_cargo);
     write_u32_at(&mut data, PLANET_LIGHT_FIGHTER_OFFSET, planet.light_fighter);
@@ -2006,11 +2068,27 @@ fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFie
     write_u32_at(&mut data, PLANET_DESTROYER_OFFSET, planet.destroyer);
     write_u32_at(&mut data, PLANET_DEATHSTAR_OFFSET, planet.deathstar);
     write_u32_at(&mut data, PLANET_RECYCLER_OFFSET, planet.recycler);
-    write_u32_at(&mut data, PLANET_ESPIONAGE_PROBE_OFFSET, planet.espionage_probe);
+    write_u32_at(
+        &mut data,
+        PLANET_ESPIONAGE_PROBE_OFFSET,
+        planet.espionage_probe,
+    );
     write_u32_at(&mut data, PLANET_COLONY_SHIP_OFFSET, planet.colony_ship);
-    write_u32_at(&mut data, PLANET_SOLAR_SATELLITE_OFFSET, planet.solar_satellite);
-    write_u8_at(&mut data, PLANET_SHIP_BUILD_ITEM_OFFSET, planet.ship_build_item);
-    write_u32_at(&mut data, PLANET_SHIP_BUILD_QTY_OFFSET, planet.ship_build_qty);
+    write_u32_at(
+        &mut data,
+        PLANET_SOLAR_SATELLITE_OFFSET,
+        planet.solar_satellite,
+    );
+    write_u8_at(
+        &mut data,
+        PLANET_SHIP_BUILD_ITEM_OFFSET,
+        planet.ship_build_item,
+    );
+    write_u32_at(
+        &mut data,
+        PLANET_SHIP_BUILD_QTY_OFFSET,
+        planet.ship_build_qty,
+    );
     write_i64_at(
         &mut data,
         PLANET_SHIP_BUILD_FINISH_TS_OFFSET,
@@ -2027,7 +2105,10 @@ fn settle_planet_deposit_fields(planet: &mut PlanetDepositFields, now: i64) -> R
         return Ok(());
     }
 
-    require!(now >= planet.last_update_ts, GameStateError::InvalidTimestamp);
+    require!(
+        now >= planet.last_update_ts,
+        GameStateError::InvalidTimestamp
+    );
 
     if now == planet.last_update_ts {
         return Ok(());
@@ -2063,8 +2144,10 @@ fn require_active_vault_for_live_planet(
     authorized_vault_key: Pubkey,
     planet_authority: Pubkey,
 ) -> Result<()> {
-    let (expected, _) =
-        Pubkey::find_program_address(&[b"authorized_vault", planet_authority.as_ref()], program_id);
+    let (expected, _) = Pubkey::find_program_address(
+        &[b"authorized_vault", planet_authority.as_ref()],
+        program_id,
+    );
     require_keys_eq!(
         authorized_vault_key,
         expected,
@@ -2293,8 +2376,8 @@ fn recalculate_rates_live(planet: &mut PlanetBuildFields) {
     };
 
     let solar_prod = mine_rate(planet.solar_plant, 20);
-    let satellite_prod =
-        solar_satellite_energy_live(planet.temperature).saturating_mul(planet.solar_satellite as u64);
+    let satellite_prod = solar_satellite_energy_live(planet.temperature)
+        .saturating_mul(planet.solar_satellite as u64);
     let fusion_prod = if planet.fusion_reactor == 0 {
         0
     } else {
@@ -2327,10 +2410,19 @@ fn start_build_live(planet: &mut PlanetBuildFields, building_idx: u8, now: i64) 
         planet.build_finish_ts == 0 || now >= planet.build_finish_ts,
         GameStateError::QueueBusy
     );
-    require!(planet.used_fields < planet.max_fields, GameStateError::NoFields);
+    require!(
+        planet.used_fields < planet.max_fields,
+        GameStateError::NoFields
+    );
     enforce_building_requirements_live(building_idx, planet)?;
-    require!(planet.deposit.metal >= cm, GameStateError::InsufficientMetal);
-    require!(planet.deposit.crystal >= cc, GameStateError::InsufficientCrystal);
+    require!(
+        planet.deposit.metal >= cm,
+        GameStateError::InsufficientMetal
+    );
+    require!(
+        planet.deposit.crystal >= cc,
+        GameStateError::InsufficientCrystal
+    );
     require!(
         planet.deposit.deuterium >= cd,
         GameStateError::InsufficientDeuterium
@@ -2385,8 +2477,14 @@ fn start_research_live(planet: &mut PlanetBuildFields, tech_idx: u8, now: i64) -
     let next = current.saturating_add(1);
     let (cm, cc, cd) = research_cost_for_level(tech_idx, current);
 
-    require!(planet.deposit.metal >= cm, GameStateError::InsufficientMetal);
-    require!(planet.deposit.crystal >= cc, GameStateError::InsufficientCrystal);
+    require!(
+        planet.deposit.metal >= cm,
+        GameStateError::InsufficientMetal
+    );
+    require!(
+        planet.deposit.crystal >= cc,
+        GameStateError::InsufficientCrystal
+    );
     require!(
         planet.deposit.deuterium >= cd,
         GameStateError::InsufficientDeuterium
@@ -2404,10 +2502,7 @@ fn start_research_live(planet: &mut PlanetBuildFields, tech_idx: u8, now: i64) -
 }
 
 fn finish_research_live(planet: &mut PlanetBuildFields, now: i64) -> Result<()> {
-    require!(
-        planet.research_finish_ts > 0,
-        GameStateError::NoResearch
-    );
+    require!(planet.research_finish_ts > 0, GameStateError::NoResearch);
     require!(
         now >= planet.research_finish_ts,
         GameStateError::ResearchNotFinished
@@ -2601,11 +2696,12 @@ fn start_ship_build_bytes(
         if dt > 0 {
             let energy_production = read_u64_at(&data, PLANET_ENERGY_PRODUCTION_OFFSET);
             let energy_consumption = read_u64_at(&data, PLANET_ENERGY_CONSUMPTION_OFFSET);
-            let (eff_num, eff_den) = if energy_consumption == 0 || energy_production >= energy_consumption {
-                (1u128, 1u128)
-            } else {
-                (energy_production as u128, energy_consumption as u128)
-            };
+            let (eff_num, eff_den) =
+                if energy_consumption == 0 || energy_production >= energy_consumption {
+                    (1u128, 1u128)
+                } else {
+                    (energy_production as u128, energy_consumption as u128)
+                };
             let gain = |rate: u64| -> u64 {
                 ((rate as u128)
                     .saturating_mul(dt as u128)
@@ -2741,7 +2837,11 @@ fn start_ship_build_bytes(
     write_i64_at(&mut data, PLANET_LAST_UPDATE_TS_OFFSET, now);
     write_u8_at(&mut data, PLANET_SHIP_BUILD_ITEM_OFFSET, ship_type);
     write_u32_at(&mut data, PLANET_SHIP_BUILD_QTY_OFFSET, quantity);
-    write_i64_at(&mut data, PLANET_SHIP_BUILD_FINISH_TS_OFFSET, now.saturating_add(dur));
+    write_i64_at(
+        &mut data,
+        PLANET_SHIP_BUILD_FINISH_TS_OFFSET,
+        now.saturating_add(dur),
+    );
     Ok(())
 }
 
@@ -2772,11 +2872,12 @@ fn start_defense_build_bytes(
         if dt > 0 {
             let energy_production = read_u64_at(&data, PLANET_ENERGY_PRODUCTION_OFFSET);
             let energy_consumption = read_u64_at(&data, PLANET_ENERGY_CONSUMPTION_OFFSET);
-            let (eff_num, eff_den) = if energy_consumption == 0 || energy_production >= energy_consumption {
-                (1u128, 1u128)
-            } else {
-                (energy_production as u128, energy_consumption as u128)
-            };
+            let (eff_num, eff_den) =
+                if energy_consumption == 0 || energy_production >= energy_consumption {
+                    (1u128, 1u128)
+                } else {
+                    (energy_production as u128, energy_consumption as u128)
+                };
             let gain = |rate: u64| -> u64 {
                 ((rate as u128)
                     .saturating_mul(dt as u128)
@@ -2851,7 +2952,10 @@ fn start_defense_build_bytes(
     }
 
     let (cm, cc, cd) = defense_cost(defense_type);
-    require!(cm != 0 || cc != 0 || cd != 0, GameStateError::InvalidDefenseType);
+    require!(
+        cm != 0 || cc != 0 || cd != 0,
+        GameStateError::InvalidDefenseType
+    );
     let total_m = cm.saturating_mul(quantity as u64);
     let total_c = cc.saturating_mul(quantity as u64);
     let total_d = cd.saturating_mul(quantity as u64);
@@ -2871,7 +2975,11 @@ fn start_defense_build_bytes(
     write_i64_at(&mut data, PLANET_LAST_UPDATE_TS_OFFSET, now);
     write_u8_at(&mut data, PLANET_DEFENSE_BUILD_ITEM_OFFSET, defense_type);
     write_u32_at(&mut data, PLANET_DEFENSE_BUILD_QTY_OFFSET, quantity);
-    write_i64_at(&mut data, PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET, now.saturating_add(dur));
+    write_i64_at(
+        &mut data,
+        PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET,
+        now.saturating_add(dur),
+    );
     Ok(())
 }
 
@@ -2900,7 +3008,10 @@ fn finish_defense_build_bytes(account_info: &AccountInfo, now: i64) -> Result<()
     let defense_type = read_u8_at(&data, PLANET_DEFENSE_BUILD_ITEM_OFFSET);
     let quantity = read_u32_at(&data, PLANET_DEFENSE_BUILD_QTY_OFFSET);
     let finish_ts = read_i64_at(&data, PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET);
-    require!(quantity > 0 && finish_ts > 0, GameStateError::NoDefenseBuild);
+    require!(
+        quantity > 0 && finish_ts > 0,
+        GameStateError::NoDefenseBuild
+    );
     require!(defense_type != 255, GameStateError::NoDefenseBuild);
     require!(now >= finish_ts, GameStateError::DefenseBuildNotFinished);
 
@@ -2948,13 +3059,23 @@ pub fn upgrade_alliance_building(
         GameStateError::AllianceTreasuryNotEnoughResources
     );
 
-    ctx.accounts.alliance_treasury.metal = ctx.accounts.alliance_treasury.metal.saturating_sub(metal);
-    ctx.accounts.alliance_treasury.crystal =
-        ctx.accounts.alliance_treasury.crystal.saturating_sub(crystal);
-    ctx.accounts.alliance_treasury.deuterium =
-        ctx.accounts.alliance_treasury.deuterium.saturating_sub(deuterium);
-    ctx.accounts.alliance_treasury.antimatter =
-        ctx.accounts.alliance_treasury.antimatter.saturating_sub(antimatter);
+    ctx.accounts.alliance_treasury.metal =
+        ctx.accounts.alliance_treasury.metal.saturating_sub(metal);
+    ctx.accounts.alliance_treasury.crystal = ctx
+        .accounts
+        .alliance_treasury
+        .crystal
+        .saturating_sub(crystal);
+    ctx.accounts.alliance_treasury.deuterium = ctx
+        .accounts
+        .alliance_treasury
+        .deuterium
+        .saturating_sub(deuterium);
+    ctx.accounts.alliance_treasury.antimatter = ctx
+        .accounts
+        .alliance_treasury
+        .antimatter
+        .saturating_sub(antimatter);
     set_alliance_building_level(&mut ctx.accounts.alliance_treasury, building_id, next)?;
 
     ctx.accounts.alliance.xp = ctx.accounts.alliance.xp.saturating_add(xp);
@@ -3078,21 +3199,13 @@ fn validate_quest_progress_pda(
 ) -> Result<QuestProgressState> {
     let (expected, _) =
         Pubkey::find_program_address(&[b"quest_progress", authority.as_ref()], program_id);
-    require_keys_eq!(
-        account_info.key(),
-        expected,
-        GameStateError::Unauthorized
-    );
+    require_keys_eq!(account_info.key(), expected, GameStateError::Unauthorized);
     require!(
         account_info.data_len() >= QUEST_PROGRESS_STATE_SPACE,
         GameStateError::InvalidArgs
     );
     let progress: QuestProgressState = read_program_account(account_info, program_id)?;
-    require_keys_eq!(
-        progress.authority,
-        authority,
-        GameStateError::Unauthorized
-    );
+    require_keys_eq!(progress.authority, authority, GameStateError::Unauthorized);
     Ok(progress)
 }
 
@@ -3189,8 +3302,9 @@ fn increment_quest_progress(
                 progress.daily_spy_missions_resolved.saturating_add(amount);
             progress.weekly_spy_missions_resolved =
                 progress.weekly_spy_missions_resolved.saturating_add(amount);
-            progress.monthly_spy_missions_resolved =
-                progress.monthly_spy_missions_resolved.saturating_add(amount);
+            progress.monthly_spy_missions_resolved = progress
+                .monthly_spy_missions_resolved
+                .saturating_add(amount);
         }
     }
     progress.last_updated_ts = now;
@@ -4041,7 +4155,9 @@ fn alliance_building_cost(building_id: u8, next_level: u8) -> Result<(u64, u64, 
             3_000u64.saturating_mul(scale),
             3_000u64.saturating_mul(scale),
             3_000u64.saturating_mul(scale),
-            100u64.saturating_mul(level).saturating_mul(ANTIMATTER_SCALE),
+            100u64
+                .saturating_mul(level)
+                .saturating_mul(ANTIMATTER_SCALE),
             350u64.saturating_mul(level),
         )),
         _ => err!(GameStateError::InvalidAllianceBuilding),
@@ -4878,7 +4994,11 @@ fn progress_u64_for_period(period: u8, daily: u64, weekly: u64, monthly: u64) ->
     }
 }
 
-fn recurring_requirement_current(period: u8, req: QuestRequirement, progress: &QuestProgressState) -> Result<u64> {
+fn recurring_requirement_current(
+    period: u8,
+    req: QuestRequirement,
+    progress: &QuestProgressState,
+) -> Result<u64> {
     match req {
         QuestRequirement::MetalMine(_)
         | QuestRequirement::CrystalMine(_)
@@ -4889,7 +5009,8 @@ fn recurring_requirement_current(period: u8, req: QuestRequirement, progress: &Q
             progress.daily_store_packs_bought,
             progress.weekly_store_packs_bought,
             progress.monthly_store_packs_bought,
-        ).map(u64::from),
+        )
+        .map(u64::from),
         QuestRequirement::SolarPlant(_)
         | QuestRequirement::SmallCargo(_)
         | QuestRequirement::LargeCargo(_) => progress_u32_for_period(
@@ -4897,7 +5018,8 @@ fn recurring_requirement_current(period: u8, req: QuestRequirement, progress: &Q
             progress.daily_transports_resolved,
             progress.weekly_transports_resolved,
             progress.monthly_transports_resolved,
-        ).map(u64::from),
+        )
+        .map(u64::from),
         QuestRequirement::ResearchLab(_)
         | QuestRequirement::ComputerTech(_)
         | QuestRequirement::EspionageProbe(_)
@@ -4906,13 +5028,17 @@ fn recurring_requirement_current(period: u8, req: QuestRequirement, progress: &Q
             progress.daily_spy_missions_resolved,
             progress.weekly_spy_missions_resolved,
             progress.monthly_spy_missions_resolved,
-        ).map(u64::from),
-        QuestRequirement::Astrophysics(_) | QuestRequirement::ColonyShip(_) => progress_u32_for_period(
-            period,
-            progress.daily_planets_colonized,
-            progress.weekly_planets_colonized,
-            progress.monthly_planets_colonized,
-        ).map(u64::from),
+        )
+        .map(u64::from),
+        QuestRequirement::Astrophysics(_) | QuestRequirement::ColonyShip(_) => {
+            progress_u32_for_period(
+                period,
+                progress.daily_planets_colonized,
+                progress.weekly_planets_colonized,
+                progress.monthly_planets_colonized,
+            )
+            .map(u64::from)
+        }
         QuestRequirement::EnergyTech(_)
         | QuestRequirement::DeuteriumSynthesizer(_)
         | QuestRequirement::FusionReactor(_)
@@ -4947,7 +5073,8 @@ fn recurring_requirement_current(period: u8, req: QuestRequirement, progress: &Q
             progress.daily_attacks_resolved,
             progress.weekly_attacks_resolved,
             progress.monthly_attacks_resolved,
-        ).map(u64::from),
+        )
+        .map(u64::from),
     }
 }
 
@@ -5011,7 +5138,9 @@ fn recurring_requirement_required(period: u8, req: QuestRequirement) -> u64 {
                 3 => 1_000,
                 _ => 0,
             };
-            raw.max(1).saturating_mul(base).saturating_mul(ANTIMATTER_SCALE)
+            raw.max(1)
+                .saturating_mul(base)
+                .saturating_mul(ANTIMATTER_SCALE)
         }
         QuestRequirement::Astrophysics(_) | QuestRequirement::ColonyShip(_) => raw.clamp(1, 3),
         _ => raw.max(1),
@@ -5287,7 +5416,11 @@ pub fn build_ship_vault(
         }
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
-    require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, authority)?;
+    require_active_vault(
+        ctx.accounts.vault_signer.key(),
+        &ctx.accounts.authorized_vault,
+        authority,
+    )?;
     let now = chain_now()?;
     start_ship_build_bytes(&planet_info, ship_type, quantity, now)
 }
@@ -5330,7 +5463,11 @@ pub fn build_defense_vault(
 ) -> Result<()> {
     let planet_info = ctx.accounts.planet_state.to_account_info();
     let authority = {
-        require_keys_eq!(*planet_info.owner, *ctx.program_id, GameStateError::Unauthorized);
+        require_keys_eq!(
+            *planet_info.owner,
+            *ctx.program_id,
+            GameStateError::Unauthorized
+        );
         let data = planet_info.try_borrow_data()?;
         require!(
             data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
@@ -5338,7 +5475,11 @@ pub fn build_defense_vault(
         );
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
-    require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, authority)?;
+    require_active_vault(
+        ctx.accounts.vault_signer.key(),
+        &ctx.accounts.authorized_vault,
+        authority,
+    )?;
     let now = chain_now()?;
     start_defense_build_bytes(&planet_info, defense_type, quantity, now)
 }
@@ -5351,7 +5492,11 @@ pub fn finish_defense_build(ctx: Context<MutatePlanetState>, _now: i64) -> Resul
 pub fn finish_defense_build_vault(ctx: Context<MutatePlanetStateVault>, _now: i64) -> Result<()> {
     let planet_info = ctx.accounts.planet_state.to_account_info();
     let authority = {
-        require_keys_eq!(*planet_info.owner, *ctx.program_id, GameStateError::Unauthorized);
+        require_keys_eq!(
+            *planet_info.owner,
+            *ctx.program_id,
+            GameStateError::Unauthorized
+        );
         let data = planet_info.try_borrow_data()?;
         require!(
             data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
@@ -5359,7 +5504,11 @@ pub fn finish_defense_build_vault(ctx: Context<MutatePlanetStateVault>, _now: i6
         );
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
-    require_active_vault(ctx.accounts.vault_signer.key(), &ctx.accounts.authorized_vault, authority)?;
+    require_active_vault(
+        ctx.accounts.vault_signer.key(),
+        &ctx.accounts.authorized_vault,
+        authority,
+    )?;
     let now = chain_now()?;
     finish_defense_build_bytes(&planet_info, now)
 }
@@ -5511,20 +5660,26 @@ pub fn resolve_transport(ctx: Context<ResolveTransport>, slot: u8, _now: i64) ->
     msg!("resolve_transport: entered");
     msg!("resolve_transport: slot={}", slot);
     let now = chain_now()?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.source_planet.mission(slot_idx).applied;
     resolve_transport_planets(
         &mut ctx.accounts.source_planet,
         &mut ctx.accounts.destination_planet,
-        slot as usize,
+        slot_idx,
         now,
     )?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.authority.key(),
-        ctx.program_id,
-        now,
-        QuestProgressMetric::TransportsResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.first(),
+            ctx.accounts.authority.key(),
+            ctx.program_id,
+            now,
+            QuestProgressMetric::TransportsResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_transport_vault(
@@ -5541,33 +5696,51 @@ pub fn resolve_transport_vault(
     )?;
     msg!("resolve_transport_vault: vault ok");
     let now = chain_now()?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.source_planet.mission(slot_idx).applied;
     resolve_transport_planets(
         &mut ctx.accounts.source_planet,
         &mut ctx.accounts.destination_planet,
-        slot as usize,
+        slot_idx,
         now,
     )?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.source_planet.authority,
-        ctx.program_id,
-        now,
-        QuestProgressMetric::TransportsResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.first(),
+            ctx.accounts.source_planet.authority,
+            ctx.program_id,
+            now,
+            QuestProgressMetric::TransportsResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_transport_empty(ctx: Context<MutatePlanetState>, slot: u8, _now: i64) -> Result<()> {
     let now = chain_now()?;
-    resolve_transport_empty_slot(&mut ctx.accounts.planet_state, slot as usize, now)?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.authority.key(),
-        ctx.program_id,
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.planet_state.mission(slot_idx).applied;
+    resolve_transport_empty_slot(
+        &mut ctx.accounts.planet_state,
+        slot_idx,
         now,
-        QuestProgressMetric::TransportsResolved,
-        1,
-    )
+        ctx.remaining_accounts.first(),
+        ctx.program_id,
+    )?;
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.get(1),
+            ctx.accounts.authority.key(),
+            ctx.program_id,
+            now,
+            QuestProgressMetric::TransportsResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_transport_empty_vault(
@@ -5583,40 +5756,58 @@ pub fn resolve_transport_empty_vault(
         planet.authority,
     )?;
     let now = chain_now()?;
-    resolve_transport_empty_slot(&mut planet, slot as usize, now)?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !planet.mission(slot_idx).applied;
+    resolve_transport_empty_slot(
+        &mut planet,
+        slot_idx,
+        now,
+        ctx.remaining_accounts.first(),
+        ctx.program_id,
+    )?;
     let authority = planet.authority;
     write_program_account(&planet_info, &planet)?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        authority,
-        ctx.program_id,
-        now,
-        QuestProgressMetric::TransportsResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.get(1),
+            authority,
+            ctx.program_id,
+            now,
+            QuestProgressMetric::TransportsResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_attack(ctx: Context<ResolveAttack>, slot: u8, _now: i64) -> Result<()> {
     let source_key = ctx.accounts.source_planet.key();
     let destination_key = ctx.accounts.destination_planet.key();
     let now = chain_now()?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.source_planet.mission(slot_idx).applied;
     resolve_attack_planets(
         &mut ctx.accounts.source_planet,
         &mut ctx.accounts.destination_planet,
         &mut ctx.accounts.destination_coords,
         source_key,
         destination_key,
-        slot as usize,
+        slot_idx,
         now,
     )?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.authority.key(),
-        ctx.program_id,
-        now,
-        QuestProgressMetric::AttacksResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.first(),
+            ctx.accounts.authority.key(),
+            ctx.program_id,
+            now,
+            QuestProgressMetric::AttacksResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_attack_vault(ctx: Context<ResolveAttackVault>, slot: u8, _now: i64) -> Result<()> {
@@ -5628,45 +5819,57 @@ pub fn resolve_attack_vault(ctx: Context<ResolveAttackVault>, slot: u8, _now: i6
     let source_key = ctx.accounts.source_planet.key();
     let destination_key = ctx.accounts.destination_planet.key();
     let now = chain_now()?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.source_planet.mission(slot_idx).applied;
     resolve_attack_planets(
         &mut ctx.accounts.source_planet,
         &mut ctx.accounts.destination_planet,
         &mut ctx.accounts.destination_coords,
         source_key,
         destination_key,
-        slot as usize,
+        slot_idx,
         now,
     )?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.source_planet.authority,
-        ctx.program_id,
-        now,
-        QuestProgressMetric::AttacksResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.first(),
+            ctx.accounts.source_planet.authority,
+            ctx.program_id,
+            now,
+            QuestProgressMetric::AttacksResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_espionage(ctx: Context<ResolveAttack>, slot: u8, _now: i64) -> Result<()> {
     let source_key = ctx.accounts.source_planet.key();
     let destination_key = ctx.accounts.destination_planet.key();
     let now = chain_now()?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.source_planet.mission(slot_idx).applied;
     resolve_espionage_planets(
         &mut ctx.accounts.source_planet,
         &mut ctx.accounts.destination_planet,
         source_key,
         destination_key,
-        slot as usize,
+        slot_idx,
         now,
     )?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.authority.key(),
-        ctx.program_id,
-        now,
-        QuestProgressMetric::SpyMissionsResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.first(),
+            ctx.accounts.authority.key(),
+            ctx.program_id,
+            now,
+            QuestProgressMetric::SpyMissionsResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 pub fn resolve_espionage_vault(
@@ -5682,22 +5885,28 @@ pub fn resolve_espionage_vault(
     let source_key = ctx.accounts.source_planet.key();
     let destination_key = ctx.accounts.destination_planet.key();
     let now = chain_now()?;
+    let slot_idx = slot as usize;
+    require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
+    let count_progress = !ctx.accounts.source_planet.mission(slot_idx).applied;
     resolve_espionage_planets(
         &mut ctx.accounts.source_planet,
         &mut ctx.accounts.destination_planet,
         source_key,
         destination_key,
-        slot as usize,
+        slot_idx,
         now,
     )?;
-    increment_quest_progress(
-        ctx.remaining_accounts.first(),
-        ctx.accounts.source_planet.authority,
-        ctx.program_id,
-        now,
-        QuestProgressMetric::SpyMissionsResolved,
-        1,
-    )
+    if count_progress {
+        increment_quest_progress(
+            ctx.remaining_accounts.first(),
+            ctx.accounts.source_planet.authority,
+            ctx.program_id,
+            now,
+            QuestProgressMetric::SpyMissionsResolved,
+            1,
+        )?;
+    }
+    Ok(())
 }
 
 /// Legacy two-step colonization is disabled.
