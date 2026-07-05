@@ -1558,7 +1558,9 @@ pub(crate) fn accelerate_mission_with_antimatter_inner<'info>(
     )?;
 
     if leg == 0 {
+        let original_flight_seconds = mission.arrive_ts.saturating_sub(mission.depart_ts).max(1);
         mission.arrive_ts = now;
+        mission.depart_ts = now.saturating_sub(original_flight_seconds);
     } else {
         mission.return_ts = now;
     }
