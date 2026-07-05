@@ -1708,6 +1708,9 @@ struct PlanetBuildFields {
     ship_build_item: u8,
     ship_build_qty: u32,
     ship_build_finish_ts: i64,
+    defense_build_item: u8,
+    defense_build_qty: u32,
+    defense_build_finish_ts: i64,
 }
 
 const PLANET_AUTHORITY_OFFSET: usize = 8;
@@ -1905,7 +1908,7 @@ fn read_planet_build_fields(
     let deposit = read_planet_deposit_fields(account_info, program_id)?;
     let data = account_info.try_borrow_data()?;
     require!(
-        data.len() >= PLANET_LAST_UPDATE_TS_OFFSET + 8,
+        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
         GameStateError::InvalidArgs
     );
     Ok(PlanetBuildFields {
@@ -1959,6 +1962,9 @@ fn read_planet_build_fields(
         ship_build_item: read_u8_at(&data, PLANET_SHIP_BUILD_ITEM_OFFSET),
         ship_build_qty: read_u32_at(&data, PLANET_SHIP_BUILD_QTY_OFFSET),
         ship_build_finish_ts: read_i64_at(&data, PLANET_SHIP_BUILD_FINISH_TS_OFFSET),
+        defense_build_item: read_u8_at(&data, PLANET_DEFENSE_BUILD_ITEM_OFFSET),
+        defense_build_qty: read_u32_at(&data, PLANET_DEFENSE_BUILD_QTY_OFFSET),
+        defense_build_finish_ts: read_i64_at(&data, PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET),
     })
 }
 
@@ -1966,7 +1972,7 @@ fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFie
     write_planet_deposit_fields(account_info, &planet.deposit)?;
     let mut data = account_info.try_borrow_mut_data()?;
     require!(
-        data.len() >= PLANET_LAST_UPDATE_TS_OFFSET + 8,
+        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
         GameStateError::InvalidArgs
     );
     write_u16_at(&mut data, PLANET_USED_FIELDS_OFFSET, planet.used_fields);
@@ -2139,6 +2145,21 @@ fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFie
         &mut data,
         PLANET_SHIP_BUILD_FINISH_TS_OFFSET,
         planet.ship_build_finish_ts,
+    );
+    write_u8_at(
+        &mut data,
+        PLANET_DEFENSE_BUILD_ITEM_OFFSET,
+        planet.defense_build_item,
+    );
+    write_u32_at(
+        &mut data,
+        PLANET_DEFENSE_BUILD_QTY_OFFSET,
+        planet.defense_build_qty,
+    );
+    write_i64_at(
+        &mut data,
+        PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET,
+        planet.defense_build_finish_ts,
     );
     Ok(())
 }
@@ -2456,6 +2477,20 @@ fn start_build_live(planet: &mut PlanetBuildFields, building_idx: u8, now: i64) 
         planet.build_finish_ts == 0 || now >= planet.build_finish_ts,
         GameStateError::QueueBusy
     );
+    if building_idx == 7 {
+        require!(
+            planet.ship_build_item == 255
+                || planet.ship_build_qty == 0
+                || planet.ship_build_finish_ts <= 0,
+            GameStateError::ShipyardQueueBusy
+        );
+        require!(
+            planet.defense_build_item == 255
+                || planet.defense_build_qty == 0
+                || planet.defense_build_finish_ts <= 0,
+            GameStateError::ShipyardQueueBusy
+        );
+    }
     require!(
         planet.used_fields < planet.max_fields,
         GameStateError::NoFields

@@ -1028,6 +1028,20 @@ pub(crate) fn start_build_planet(
         planet.build_finish_ts == 0 || now >= planet.build_finish_ts,
         GameStateError::QueueBusy
     );
+    if building_idx == 7 {
+        require!(
+            planet.ship_build_item == 255
+                || planet.ship_build_qty == 0
+                || planet.ship_build_finish_ts <= 0,
+            GameStateError::ShipyardQueueBusy
+        );
+        require!(
+            planet.defense_build_item == 255
+                || planet.defense_build_qty == 0
+                || planet.defense_build_finish_ts <= 0,
+            GameStateError::ShipyardQueueBusy
+        );
+    }
     require!(
         planet.used_fields < planet.max_fields,
         GameStateError::NoFields
