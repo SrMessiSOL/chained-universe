@@ -287,6 +287,7 @@ pub struct InitializeStoreConfig<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
     pub usdc_mint: Account<'info, Mint>,
+    #[account(token::mint = usdc_mint)]
     pub treasury_usdc_account: Account<'info, TokenAccount>,
     #[account(
         init,
@@ -304,6 +305,7 @@ pub struct UpdateStoreConfig<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
     pub usdc_mint: Account<'info, Mint>,
+    #[account(token::mint = usdc_mint)]
     pub treasury_usdc_account: Account<'info, TokenAccount>,
     #[account(
         mut,
@@ -959,6 +961,7 @@ pub struct TransferPlanet<'info> {
     #[account(
         seeds = [b"player_profile", new_authority.key().as_ref()],
         bump = new_player_profile.bump,
+        constraint = new_player_profile.authority == new_authority.key() @ GameStateError::Unauthorized
     )]
     pub new_player_profile: Account<'info, PlayerProfile>,
 
@@ -989,6 +992,7 @@ pub struct TransferPlanetFromMarket<'info> {
     #[account(
         seeds = [b"player_profile", new_authority.key().as_ref()],
         bump = new_player_profile.bump,
+        constraint = new_player_profile.authority == new_authority.key() @ GameStateError::Unauthorized
     )]
     pub new_player_profile: Account<'info, PlayerProfile>,
 

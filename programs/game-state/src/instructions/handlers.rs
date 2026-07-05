@@ -128,6 +128,10 @@ pub fn initialize_homeworld(
 ) -> Result<()> {
     let now = chain_now()?;
     let authority = ctx.accounts.player_profile.authority;
+    require!(
+        ctx.accounts.player_profile.planet_count == 0,
+        GameStateError::InvalidArgs
+    );
     let authorized_vault_info = ctx.accounts.authorized_vault.to_account_info();
     let authorized_vault: AuthorizedVault =
         read_program_account(&authorized_vault_info, ctx.program_id)?;
@@ -281,6 +285,29 @@ pub fn initialize_colony(
     params: InitializeColonyParams,
 ) -> Result<()> {
     let now = chain_now()?;
+    require!(
+        params.cargo_metal == 0
+            && params.cargo_crystal == 0
+            && params.cargo_deuterium == 0
+            && params.small_cargo == 0
+            && params.large_cargo == 0
+            && params.light_fighter == 0
+            && params.heavy_fighter == 0
+            && params.cruiser == 0
+            && params.battleship == 0
+            && params.battlecruiser == 0
+            && params.bomber == 0
+            && params.destroyer == 0
+            && params.deathstar == 0
+            && params.recycler == 0
+            && params.espionage_probe == 0
+            && params.solar_satellite == 0,
+        GameStateError::InvalidArgs
+    );
+    require!(
+        ctx.accounts.player_profile.planet_count > 0,
+        GameStateError::InvalidArgs
+    );
     let authority = ctx.accounts.player_profile.authority;
     let authorized_vault_info = ctx.accounts.authorized_vault.to_account_info();
     let authorized_vault: AuthorizedVault =
@@ -417,83 +444,17 @@ pub fn initialize_colony(
 }
 
 pub fn initialize_public_homeworld(
-    ctx: Context<InitializePublicPlanetVault>,
-    params: InitializeHomeworldParams,
+    _ctx: Context<InitializePublicPlanetVault>,
+    _params: InitializeHomeworldParams,
 ) -> Result<()> {
-    let now = chain_now()?;
-    require_active_vault(
-        ctx.accounts.vault_signer.key(),
-        &ctx.accounts.authorized_vault,
-        ctx.accounts.player_profile.authority,
-    )?;
-
-    let authority = ctx.accounts.player_profile.authority;
-    let auth_bytes = authority.to_bytes();
-    let position = if params.position == 0 {
-        (auth_bytes[3] % 15) + 1
-    } else {
-        params.position.clamp(1, 15)
-    };
-    let galaxy = if params.galaxy == 0 {
-        ((auth_bytes[0] as u16) % 999) + 1
-    } else {
-        params.galaxy.clamp(1, 999)
-    };
-    let system = if params.system == 0 {
-        (u16::from_le_bytes([auth_bytes[1], auth_bytes[2]]) % 999) + 1
-    } else {
-        params.system.clamp(1, 999)
-    };
-
-    create_public_planet_state(
-        authority,
-        &mut ctx.accounts.player_profile,
-        &mut ctx.accounts.public_planet_state,
-        &ctx.accounts.public_planet_coords.to_account_info(),
-        &ctx.accounts.vault_signer.to_account_info(),
-        &ctx.accounts.system_program.to_account_info(),
-        ctx.bumps.public_planet_state,
-        &if params.name.is_empty() {
-            "Homeworld".to_string()
-        } else {
-            params.name
-        },
-        galaxy,
-        system,
-        position,
-        now,
-    )
+    err!(GameStateError::InvalidArgs)
 }
 
 pub fn initialize_public_colony(
-    ctx: Context<InitializePublicPlanetVault>,
-    params: InitializeColonyParams,
+    _ctx: Context<InitializePublicPlanetVault>,
+    _params: InitializeColonyParams,
 ) -> Result<()> {
-    let now = chain_now()?;
-    require_active_vault(
-        ctx.accounts.vault_signer.key(),
-        &ctx.accounts.authorized_vault,
-        ctx.accounts.player_profile.authority,
-    )?;
-
-    create_public_planet_state(
-        ctx.accounts.player_profile.authority,
-        &mut ctx.accounts.player_profile,
-        &mut ctx.accounts.public_planet_state,
-        &ctx.accounts.public_planet_coords.to_account_info(),
-        &ctx.accounts.vault_signer.to_account_info(),
-        &ctx.accounts.system_program.to_account_info(),
-        ctx.bumps.public_planet_state,
-        &if params.name.is_empty() {
-            "Colony".to_string()
-        } else {
-            params.name
-        },
-        params.galaxy,
-        params.system,
-        params.position,
-        now,
-    )
+    err!(GameStateError::InvalidArgs)
 }
 
 pub fn sync_public_planet_view(ctx: Context<SyncPublicPlanetView>) -> Result<()> {
@@ -1007,45 +968,11 @@ fn require_protocol_antimatter_treasury(
 }
 
 pub fn claim_alliance_mission(
-    ctx: Context<AllianceMissionAction>,
-    period: u8,
-    mission_id: u8,
+    _ctx: Context<AllianceMissionAction>,
+    _period: u8,
+    _mission_id: u8,
 ) -> Result<()> {
-    require!(mission_id < 64, GameStateError::InvalidAllianceMission);
-    let now = chain_now()?;
-    sync_alliance_periods(&mut ctx.accounts.membership, now);
-    let mission = alliance_mission(period, mission_id)?;
-    require!(
-        requirement_met(mission.req, &ctx.accounts.planet_state),
-        GameStateError::AllianceMissionRequirementsNotMet
-    );
-
-    let bit = 1u64 << mission_id;
-    let claimed_mask = match period {
-        1 => ctx.accounts.membership.daily_claimed_mask,
-        2 => ctx.accounts.membership.weekly_claimed_mask,
-        3 => ctx.accounts.membership.monthly_claimed_mask,
-        _ => return err!(GameStateError::InvalidAllianceMission),
-    };
-    require!(
-        claimed_mask & bit == 0,
-        GameStateError::AllianceMissionAlreadyClaimed
-    );
-
-    match period {
-        1 => ctx.accounts.membership.daily_claimed_mask |= bit,
-        2 => ctx.accounts.membership.weekly_claimed_mask |= bit,
-        3 => ctx.accounts.membership.monthly_claimed_mask |= bit,
-        _ => unreachable!(),
-    }
-    ctx.accounts.alliance.xp = ctx.accounts.alliance.xp.saturating_add(mission.xp);
-    ctx.accounts.alliance.total_missions_completed = ctx
-        .accounts
-        .alliance
-        .total_missions_completed
-        .saturating_add(1);
-    refresh_alliance_level(&mut ctx.accounts.alliance);
-    Ok(())
+    err!(GameStateError::InvalidAllianceMission)
 }
 
 pub fn initialize_alliance_treasury(ctx: Context<InitializeAllianceTreasury>) -> Result<()> {
@@ -1419,6 +1346,7 @@ pub fn deposit_alliance_resources_vault(
         metal > 0 || crystal > 0 || deuterium > 0 || antimatter > 0,
         GameStateError::InvalidArgs
     );
+    require!(antimatter == 0, GameStateError::InvalidArgs);
     let now = chain_now()?;
     sync_alliance_periods(&mut membership, now);
     let mission = alliance_deposit_mission(period, mission_id)?;
@@ -1636,6 +1564,9 @@ struct PlanetQuestFields {
     computer_tech: u8,
     astrophysics: u8,
     igr_network: u8,
+    weapons_technology: u8,
+    shielding_technology: u8,
+    armor_technology: u8,
     small_cargo: u32,
     large_cargo: u32,
     light_fighter: u32,
@@ -1869,6 +1800,9 @@ fn read_planet_quest_fields(
         computer_tech: read_u8_at(&data, PLANET_COMPUTER_TECH_OFFSET),
         astrophysics: read_u8_at(&data, PLANET_ASTROPHYSICS_OFFSET),
         igr_network: read_u8_at(&data, PLANET_IGR_NETWORK_OFFSET),
+        weapons_technology: read_u8_at(&data, PLANET_WEAPONS_TECHNOLOGY_OFFSET),
+        shielding_technology: read_u8_at(&data, PLANET_SHIELDING_TECHNOLOGY_OFFSET),
+        armor_technology: read_u8_at(&data, PLANET_ARMOR_TECHNOLOGY_OFFSET),
         small_cargo: read_u32_at(&data, PLANET_SMALL_CARGO_OFFSET),
         large_cargo: read_u32_at(&data, PLANET_LARGE_CARGO_OFFSET),
         light_fighter: read_u32_at(&data, PLANET_LIGHT_FIGHTER_OFFSET),
@@ -2890,10 +2824,12 @@ fn start_defense_build_bytes(
                 && read_u8_at(&data, PLANET_ENERGY_TECH_OFFSET) >= 8
         }
         6 => {
+            require!(quantity == 1, GameStateError::InvalidDefenseType);
             read_u8_at(&data, PLANET_SHIELDING_TECHNOLOGY_OFFSET) >= 2
                 && read_u32_at(&data, PLANET_SMALL_SHIELD_DOME_OFFSET) == 0
         }
         7 => {
+            require!(quantity == 1, GameStateError::InvalidDefenseType);
             read_u8_at(&data, PLANET_SHIELDING_TECHNOLOGY_OFFSET) >= 6
                 && read_u32_at(&data, PLANET_LARGE_SHIELD_DOME_OFFSET) == 0
         }
@@ -4822,9 +4758,9 @@ fn requirement_met_live(req: QuestRequirement, planet: &PlanetQuestFields) -> bo
         QuestRequirement::ComputerTech(v) => planet.computer_tech >= v,
         QuestRequirement::Astrophysics(v) => planet.astrophysics >= v,
         QuestRequirement::IgrNetwork(v) => planet.igr_network >= v,
-        QuestRequirement::WeaponsTechnology(_) => false,
-        QuestRequirement::ShieldingTechnology(_) => false,
-        QuestRequirement::ArmorTechnology(_) => false,
+        QuestRequirement::WeaponsTechnology(v) => planet.weapons_technology >= v,
+        QuestRequirement::ShieldingTechnology(v) => planet.shielding_technology >= v,
+        QuestRequirement::ArmorTechnology(v) => planet.armor_technology >= v,
         QuestRequirement::Ships(v) => u64::from(total_ships_live(planet)) >= v,
         QuestRequirement::Defenses(v) => u64::from(total_defenses_live(planet)) >= v,
         QuestRequirement::SmallCargo(v) => planet.small_cargo >= v,
@@ -5764,6 +5700,16 @@ pub fn resolve_colonize(ctx: Context<ResolveColonize>, slot: u8, _now: i64) -> R
         ctx.accounts.colony_planet.key(),
         GameStateError::InvalidDestination
     );
+    require_keys_eq!(
+        ctx.accounts.colony_planet.authority,
+        ctx.accounts.source_planet.authority,
+        GameStateError::Unauthorized
+    );
+    require_keys_eq!(
+        ctx.accounts.colony_coords.authority,
+        ctx.accounts.source_planet.authority,
+        GameStateError::Unauthorized
+    );
     require!(
         ctx.accounts.colony_coords.galaxy == mission.target_galaxy
             && ctx.accounts.colony_coords.system == mission.target_system
@@ -5808,6 +5754,18 @@ pub fn resolve_colonize_vault(
     );
     msg!("resolve_colonize_vault: planet key matches");
 
+    require_keys_eq!(
+        ctx.accounts.colony_planet.authority,
+        ctx.accounts.source_planet.authority,
+        GameStateError::Unauthorized
+    );
+    require_keys_eq!(
+        ctx.accounts.colony_coords.authority,
+        ctx.accounts.source_planet.authority,
+        GameStateError::Unauthorized
+    );
+    msg!("resolve_colonize_vault: authority matches");
+
     require!(
         ctx.accounts.colony_coords.galaxy == mission.target_galaxy
             && ctx.accounts.colony_coords.system == mission.target_system
@@ -5833,7 +5791,9 @@ pub fn resolve_colonize_vault(
 /// Both the old and new authorities must have initialized their player profile.
 /// After transfer, vault-signed gameplay by the new wallet works immediately
 /// because `MutatePlanetStateVault` looks up `authorized_vault` via
-/// `planet_state.authority`, which now points to the new wallet.
+/// `planet_state.authority`, which now points to the new wallet. Indexers and
+/// public planet sync also follow `planet_state.player`, so that profile link is
+/// moved with the authority.
 ///
 /// The planet PDA address does not change — it stays seeded by the old wallet.
 /// The old wallet's wallet-signed fallback path for this planet stops working
@@ -5843,8 +5803,9 @@ pub fn transfer_planet(ctx: Context<TransferPlanet>) -> Result<()> {
     let coords = &mut ctx.accounts.planet_coords;
     let new_authority = ctx.accounts.new_authority.key();
 
-    // Update ownership fields
+    // Update ownership fields. The planet PDA address intentionally stays fixed.
     planet.authority = new_authority;
+    planet.player = ctx.accounts.new_player_profile.key();
     coords.authority = new_authority;
 
     Ok(())
@@ -5868,6 +5829,7 @@ pub fn transfer_planet_from_market(ctx: Context<TransferPlanetFromMarket>) -> Re
     require_keys_eq!(coords.authority, seller, GameStateError::Unauthorized);
 
     planet.authority = new_authority;
+    planet.player = ctx.accounts.new_player_profile.key();
     coords.authority = new_authority;
 
     Ok(())

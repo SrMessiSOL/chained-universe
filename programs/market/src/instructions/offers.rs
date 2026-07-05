@@ -130,6 +130,12 @@ pub fn create_offer(
     if counter.seller == Pubkey::default() {
         counter.seller = ctx.accounts.seller.key();
         counter.bump = ctx.bumps.seller_counter;
+    } else {
+        require_keys_eq!(
+            counter.seller,
+            ctx.accounts.seller.key(),
+            MarketError::Unauthorized
+        );
     }
 
     counter.next_offer_id = counter.next_offer_id.saturating_add(1);
@@ -185,6 +191,11 @@ pub fn create_offer(
 
 pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
     require!(!ctx.accounts.offer.filled, MarketError::AlreadyFilled);
+    require_keys_eq!(
+        ctx.accounts.seller_counter.seller,
+        ctx.accounts.seller.key(),
+        MarketError::Unauthorized
+    );
 
     let authority_seeds: &[&[&[u8]]] =
         &[&[b"market_authority", &[ctx.bumps.market_authority]]];
@@ -218,6 +229,16 @@ pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
 
 pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
     require!(!ctx.accounts.offer.filled, MarketError::AlreadyFilled);
+    require_keys_eq!(
+        ctx.accounts.seller_counter.seller,
+        ctx.accounts.offer.seller,
+        MarketError::Unauthorized
+    );
+    require_keys_neq!(
+        ctx.accounts.buyer.key(),
+        ctx.accounts.offer.seller,
+        MarketError::Unauthorized
+    );
 
     let price = ctx.accounts.offer.price_antimatter;
     let resource_amount = ctx.accounts.offer.resource_amount;
