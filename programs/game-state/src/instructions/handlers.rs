@@ -2491,6 +2491,12 @@ fn start_build_live(planet: &mut PlanetBuildFields, building_idx: u8, now: i64) 
             GameStateError::ShipyardQueueBusy
         );
     }
+    if building_idx == 11 {
+        require!(
+            planet.research_queue_item == 255 || planet.research_finish_ts <= 0,
+            GameStateError::ResearchQueueBusy
+        );
+    }
     require!(
         planet.used_fields < planet.max_fields,
         GameStateError::NoFields
