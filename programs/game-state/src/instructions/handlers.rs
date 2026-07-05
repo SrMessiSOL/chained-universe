@@ -4330,7 +4330,7 @@ fn alliance_mission(period: u8, mission_id: u8) -> Result<AllianceMissionEntry> 
         .ok_or_else(|| GameStateError::InvalidAllianceMission.into())
 }
 
-const DAILY_ROTATING_QUESTS: [QuestCatalogEntry; 23] = [
+const DAILY_ROTATING_QUESTS: [QuestCatalogEntry; 24] = [
     QuestCatalogEntry {
         req: QuestRequirement::MetalMine(3),
         metal: 1_000,
@@ -4402,6 +4402,12 @@ const DAILY_ROTATING_QUESTS: [QuestCatalogEntry; 23] = [
         metal: 1_000,
         crystal: 700,
         deuterium: 200,
+    },
+    QuestCatalogEntry {
+        req: QuestRequirement::LargeCargo(1),
+        metal: 1_200,
+        crystal: 900,
+        deuterium: 250,
     },
     QuestCatalogEntry {
         req: QuestRequirement::LightFighter(2),
@@ -6140,4 +6146,20 @@ pub fn accelerate_mission_with_antimatter(
         QuestProgressMetric::AntimatterSpent,
         amount,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotating_quests_expose_twelve_claimable_slots_per_period() {
+        for period in [1u8, 2, 3] {
+            for quest_id in 0u8..12 {
+                let claim_id = if period == 1 { quest_id + 1 } else { quest_id };
+                rotating_quest(period, claim_id, 0)
+                    .unwrap_or_else(|_| panic!("missing period {period} quest slot {claim_id}"));
+            }
+        }
+    }
 }
