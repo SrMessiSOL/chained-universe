@@ -892,108 +892,6 @@ pub(crate) fn create_planet_state<'info>(
     Ok(())
 }
 
-pub(crate) fn create_public_planet_state<'info>(
-    authority: Pubkey,
-    player_profile: &mut Account<'info, PlayerProfile>,
-    public_planet_state: &mut Account<'info, PublicPlanetState>,
-    public_planet_coords_info: &AccountInfo<'info>,
-    payer_info: &AccountInfo<'info>,
-    system_program_info: &AccountInfo<'info>,
-    bump: u8,
-    name: &str,
-    galaxy: u16,
-    system: u16,
-    position: u8,
-    created_at: i64,
-) -> Result<()> {
-    validate_coordinates(galaxy, system, position)?;
-    require_keys_eq!(
-        player_profile.authority,
-        authority,
-        GameStateError::Unauthorized
-    );
-
-    let galaxy_bytes = galaxy.to_le_bytes();
-    let system_bytes = system.to_le_bytes();
-    let position_bytes = [position];
-    let seeds: &[&[u8]] = &[
-        b"public_planet_coords",
-        &galaxy_bytes,
-        &system_bytes,
-        &position_bytes,
-    ];
-    let (expected_pda, coords_bump) = Pubkey::find_program_address(seeds, &crate::ID);
-
-    require_keys_eq!(
-        public_planet_coords_info.key(),
-        expected_pda,
-        GameStateError::InvalidCoordinates
-    );
-
-    let planet_index = player_profile.planet_count;
-    player_profile.planet_count = player_profile
-        .planet_count
-        .checked_add(1)
-        .ok_or(GameStateError::PlanetCountOverflow)?;
-
-    let rent = Rent::get()?;
-    let space = PUBLIC_PLANET_COORDS_SPACE;
-    let lamports = rent.minimum_balance(space);
-    let signer_seeds: &[&[&[u8]]] = &[&[
-        b"public_planet_coords",
-        &galaxy_bytes,
-        &system_bytes,
-        &position_bytes,
-        &[coords_bump],
-    ]];
-
-    anchor_lang::system_program::create_account(
-        CpiContext::new_with_signer(
-            system_program_info.clone(),
-            anchor_lang::system_program::CreateAccount {
-                from: payer_info.clone(),
-                to: public_planet_coords_info.clone(),
-            },
-            signer_seeds,
-        ),
-        lamports,
-        space as u64,
-        &crate::ID,
-    )?;
-
-    let coords_data = PublicPlanetCoordinates {
-        galaxy,
-        system,
-        position,
-        public_planet: public_planet_state.key(),
-        authority,
-        bump: coords_bump,
-    };
-    let mut encoded = Vec::with_capacity(PUBLIC_PLANET_COORDS_SPACE);
-    let disc = <PublicPlanetCoordinates as anchor_lang::Discriminator>::DISCRIMINATOR;
-    encoded.extend_from_slice(&disc);
-    coords_data.serialize(&mut encoded)?;
-    require!(
-        encoded.len() <= PUBLIC_PLANET_COORDS_SPACE,
-        GameStateError::InvalidArgs
-    );
-    let mut data = public_planet_coords_info.try_borrow_mut_data()?;
-    data[..encoded.len()].copy_from_slice(&encoded);
-
-    public_planet_state.authority = authority;
-    public_planet_state.player = player_profile.key();
-    public_planet_state.planet_index = planet_index;
-    public_planet_state.galaxy = galaxy;
-    public_planet_state.system = system;
-    public_planet_state.position = position;
-    public_planet_state.version = 2;
-    public_planet_state.name = copy_name::<MAX_PLANET_NAME_LEN>(name, "Planet");
-    public_planet_state.created_at = created_at;
-    public_planet_state.bump = bump;
-
-    Ok(())
-}
-
 pub(crate) fn produce_planet(planet: &mut PlanetState, now: i64) -> Result<()> {
     settle_resources(planet, now)?;
     Ok(())
@@ -1235,24 +1133,6 @@ pub(crate) fn finish_research_planet(planet: &mut PlanetState, now: i64) -> Resu
         GameStateError::ResearchNotFinished
     );
     finish_research_now(planet, now)
-}
-
-pub(crate) fn distance(
-    from_galaxy: u16,
-    from_system: u16,
-    from_position: u8,
-    to_galaxy: u16,
-    to_system: u16,
-    to_position: u8,
-) -> u64 {
-    let galaxy_jump = (from_galaxy as i64 - to_galaxy as i64).abs() as u64 * 20_000;
-    let system_jump = (from_system as i64 - to_system as i64).abs() as u64 * 2_000;
-    let position_jump = (from_position as i64 - to_position as i64).abs() as u64 * 200;
-
-    galaxy_jump
-        .saturating_add(system_jump)
-        .saturating_add(position_jump)
-        .saturating_add(1_000)
 }
 
 pub(crate) fn base_flight_seconds(
@@ -3102,46 +2982,6 @@ pub(crate) fn resolve_transport_empty_slot(
     Ok(())
 }
 
-/// Resolve a colonize mission.
-///
-/// The `colony_planet` and `colony_coords` accounts must ALREADY be initialized
-/// (by `initialize_colony` / `initialize_colony_vault` in the same tx, or by a
-/// preceding tx). This instruction only clears the mission slot on the source
-/// planet; it does NOT create any accounts.
-pub(crate) fn resolve_colonize_planet(
-    source: &mut PlanetState,
-    slot: usize,
-    now: i64,
-) -> Result<()> {
-    require!(slot < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
-
-    let mission = source.mission(slot);
-    require!(
-        mission.mission_type == MISSION_COLONIZE,
-        GameStateError::InvalidMission
-    );
-    require!(!mission.applied, GameStateError::AlreadyResolved);
-    require!(now >= mission.arrive_ts, GameStateError::MissionInFlight);
-    require!(mission.colony_ship > 0, GameStateError::MissingColonyShip);
-
-    validate_coordinates(
-        mission.target_galaxy,
-        mission.target_system,
-        mission.target_position,
-    )?;
-
-    // Guard: source planet must not be at the target coords
-    let coords_taken = source.galaxy == mission.target_galaxy
-        && source.system == mission.target_system
-        && source.position == mission.target_position;
-    require!(!coords_taken, GameStateError::InvalidDestination);
-
-    source.clear_mission(slot);
-    source.active_missions = source.active_missions.saturating_sub(1);
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3293,13 +3133,6 @@ mod tests {
             debris_crystal: 0,
             bump: 0,
         }
-    }
-
-    #[test]
-    fn distance_scales_with_system_and_galaxy_jumps() {
-        assert!(distance(1, 1, 1, 1, 2, 1) < distance(1, 1, 1, 1, 300, 1));
-        assert!(distance(1, 1, 1, 2, 1, 1) < distance(1, 1, 1, 300, 1, 1));
-        assert!(distance(1, 1, 1, 2, 3, 4) < distance(1, 1, 1, 300, 400, 10));
     }
 
     #[test]

@@ -2342,74 +2342,6 @@ fn enforce_research_requirements_live(tech_idx: u8, planet: &PlanetBuildFields) 
     Ok(())
 }
 
-fn enforce_ship_research_gate_live(ship_type: u8, planet: &PlanetBuildFields) -> Result<()> {
-    match ship_type {
-        0 => require!(
-            planet.shipyard >= 2 && planet.combustion_drive >= 2,
-            GameStateError::TechLocked
-        ),
-        1 => require!(
-            planet.shipyard >= 4 && planet.combustion_drive >= 6,
-            GameStateError::TechLocked
-        ),
-        2 => require!(planet.shipyard >= 1, GameStateError::TechLocked),
-        3 => require!(
-            planet.shipyard >= 3 && planet.armor_technology >= 2 && planet.impulse_drive >= 2,
-            GameStateError::TechLocked
-        ),
-        4 => require!(
-            planet.shipyard >= 5 && planet.impulse_drive >= 4,
-            GameStateError::TechLocked
-        ),
-        5 => require!(
-            planet.shipyard >= 7 && planet.hyperspace_drive >= 4,
-            GameStateError::TechLocked
-        ),
-        6 => require!(
-            planet.shipyard >= 8
-                && planet.hyperspace_drive >= 5
-                && planet.computer_tech >= 5
-                && planet.weapons_technology >= 5,
-            GameStateError::TechLocked
-        ),
-        7 => require!(
-            planet.shipyard >= 8
-                && planet.impulse_drive >= 6
-                && planet.hyperspace_drive >= 5
-                && planet.weapons_technology >= 5,
-            GameStateError::TechLocked
-        ),
-        8 => require!(
-            planet.shipyard >= 9 && planet.hyperspace_drive >= 6 && planet.armor_technology >= 6,
-            GameStateError::TechLocked
-        ),
-        9 => require!(
-            planet.shipyard >= 12
-                && planet.hyperspace_drive >= 7
-                && planet.weapons_technology >= 10
-                && planet.energy_tech >= 12,
-            GameStateError::TechLocked
-        ),
-        10 => require!(
-            planet.shipyard >= 4
-                && planet.combustion_drive >= 6
-                && planet.shielding_technology >= 2,
-            GameStateError::TechLocked
-        ),
-        11 => require!(
-            planet.shipyard >= 3 && planet.computer_tech >= 2,
-            GameStateError::TechLocked
-        ),
-        12 => require!(
-            planet.shipyard >= 4 && planet.impulse_drive >= 3 && planet.astrophysics >= 3,
-            GameStateError::TechLocked
-        ),
-        13 => require!(planet.shipyard >= 1, GameStateError::TechLocked),
-        _ => return err!(GameStateError::InvalidShipType),
-    }
-    Ok(())
-}
-
 fn add_ship_live(planet: &mut PlanetBuildFields, ship_type: u8, quantity: u32) -> Result<()> {
     match ship_type {
         0 => planet.small_cargo = planet.small_cargo.saturating_add(quantity),
@@ -2605,63 +2537,6 @@ fn finish_research_live(planet: &mut PlanetBuildFields, now: i64) -> Result<()> 
     planet.research_queue_item = 255;
     planet.research_queue_target = 0;
     planet.research_finish_ts = 0;
-    Ok(())
-}
-
-fn start_ship_build_live(
-    planet: &mut PlanetBuildFields,
-    ship_type: u8,
-    quantity: u32,
-    now: i64,
-) -> Result<()> {
-    require!(quantity > 0, GameStateError::InvalidArgs);
-    settle_planet_deposit_fields(&mut planet.deposit, now)?;
-    require!(planet.shipyard >= 1, GameStateError::ShipyardTooLow);
-    require!(
-        !(planet.build_queue_item == 7 && planet.build_finish_ts > 0),
-        GameStateError::ShipyardQueueBusy
-    );
-    require!(
-        planet.ship_build_item == 255,
-        GameStateError::ShipyardQueueBusy
-    );
-    enforce_ship_research_gate_live(ship_type, planet)?;
-
-    let (cm, cc, cd) = ship_cost(ship_type);
-    require!(
-        cm != 0 || cc != 0 || cd != 0 || ship_type == 11,
-        GameStateError::InvalidShipType
-    );
-
-    let total_m = cm.saturating_mul(quantity as u64);
-    let total_c = cc.saturating_mul(quantity as u64);
-    let total_d = cd.saturating_mul(quantity as u64);
-
-    require!(
-        planet.deposit.metal >= total_m,
-        GameStateError::InsufficientMetal
-    );
-    require!(
-        planet.deposit.crystal >= total_c,
-        GameStateError::InsufficientCrystal
-    );
-    require!(
-        planet.deposit.deuterium >= total_d,
-        GameStateError::InsufficientDeuterium
-    );
-
-    planet.deposit.metal = planet.deposit.metal.saturating_sub(total_m);
-    planet.deposit.crystal = planet.deposit.crystal.saturating_sub(total_c);
-    planet.deposit.deuterium = planet.deposit.deuterium.saturating_sub(total_d);
-
-    planet.ship_build_item = ship_type;
-    planet.ship_build_qty = quantity;
-    planet.ship_build_finish_ts = now.saturating_add(ship_build_seconds(
-        ship_type,
-        quantity,
-        planet.shipyard,
-        planet.nanite_factory,
-    ));
     Ok(())
 }
 
