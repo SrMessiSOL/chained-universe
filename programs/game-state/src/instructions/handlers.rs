@@ -9,6 +9,36 @@ use crate::error::GameStateError;
 use crate::state::*;
 use crate::utils::*;
 
+const SECONDS_PER_DAY: i64 = 86_400;
+const UNIX_TO_CIVIL_DAYS: i64 = 719_468;
+
+fn daily_epoch(now: i64) -> i64 {
+    now.div_euclid(SECONDS_PER_DAY)
+}
+
+fn weekly_epoch(now: i64) -> i64 {
+    // Unix day 0 was Thursday; +3 makes weeks roll on Monday 00:00 UTC.
+    (daily_epoch(now) + 3).div_euclid(7)
+}
+
+fn civil_year_month_from_days(days_since_unix_epoch: i64) -> (i64, i64) {
+    let z = days_since_unix_epoch + UNIX_TO_CIVIL_DAYS;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096).div_euclid(365);
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2).div_euclid(153);
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+    (year, month)
+}
+
+fn monthly_epoch(now: i64) -> i64 {
+    let (year, month) = civil_year_month_from_days(daily_epoch(now));
+    year * 12 + (month - 1)
+}
+
 /// One-time wallet setup: creates player profile + authorizes vault + stores encrypted backup.
 pub fn initialize_player(
     ctx: Context<InitializePlayer>,
@@ -495,9 +525,9 @@ pub fn initialize_quest_state(ctx: Context<InitializeQuestState>) -> Result<()> 
     ctx.accounts.quest_state.set_inner(QuestState {
         authority: ctx.accounts.authority.key(),
         tutorial_claimed_mask: 0,
-        daily_epoch: now / 86_400,
-        weekly_epoch: now / 604_800,
-        monthly_epoch: now / 2_592_000,
+        daily_epoch: daily_epoch(now),
+        weekly_epoch: weekly_epoch(now),
+        monthly_epoch: monthly_epoch(now),
         daily_claimed_mask: 0,
         weekly_claimed_mask: 0,
         monthly_claimed_mask: 0,
@@ -544,9 +574,9 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         let quest_state = QuestState {
             authority,
             tutorial_claimed_mask: 0,
-            daily_epoch: now / 86_400,
-            weekly_epoch: now / 604_800,
-            monthly_epoch: now / 2_592_000,
+            daily_epoch: daily_epoch(now),
+            weekly_epoch: weekly_epoch(now),
+            monthly_epoch: monthly_epoch(now),
             daily_claimed_mask: 0,
             weekly_claimed_mask: 0,
             monthly_claimed_mask: 0,
@@ -594,9 +624,9 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         )?;
         let quest_progress = QuestProgressState {
             authority,
-            daily_epoch: now / 86_400,
-            weekly_epoch: now / 604_800,
-            monthly_epoch: now / 2_592_000,
+            daily_epoch: daily_epoch(now),
+            weekly_epoch: weekly_epoch(now),
+            monthly_epoch: monthly_epoch(now),
             daily_store_packs_bought: 0,
             weekly_store_packs_bought: 0,
             monthly_store_packs_bought: 0,
@@ -636,9 +666,9 @@ pub fn initialize_quest_progress(ctx: Context<InitializeQuestProgress>) -> Resul
     let now = chain_now()?;
     ctx.accounts.quest_progress.set_inner(QuestProgressState {
         authority: ctx.accounts.authority.key(),
-        daily_epoch: now / 86_400,
-        weekly_epoch: now / 604_800,
-        monthly_epoch: now / 2_592_000,
+        daily_epoch: daily_epoch(now),
+        weekly_epoch: weekly_epoch(now),
+        monthly_epoch: monthly_epoch(now),
         daily_store_packs_bought: 0,
         weekly_store_packs_bought: 0,
         monthly_store_packs_bought: 0,
@@ -866,9 +896,9 @@ pub fn create_alliance(
         alliance: ctx.accounts.alliance.key(),
         role: 2,
         joined_at: now,
-        daily_epoch: now / 86_400,
-        weekly_epoch: now / 604_800,
-        monthly_epoch: now / 2_592_000,
+        daily_epoch: daily_epoch(now),
+        weekly_epoch: weekly_epoch(now),
+        monthly_epoch: monthly_epoch(now),
         daily_claimed_mask: 0,
         weekly_claimed_mask: 0,
         monthly_claimed_mask: 0,
@@ -980,9 +1010,9 @@ fn init_alliance_membership(
         alliance,
         role,
         joined_at: now,
-        daily_epoch: now / 86_400,
-        weekly_epoch: now / 604_800,
-        monthly_epoch: now / 2_592_000,
+        daily_epoch: daily_epoch(now),
+        weekly_epoch: weekly_epoch(now),
+        monthly_epoch: monthly_epoch(now),
         daily_claimed_mask: 0,
         weekly_claimed_mask: 0,
         monthly_claimed_mask: 0,
@@ -3100,9 +3130,9 @@ pub fn upgrade_alliance_building(
 }
 
 fn sync_alliance_periods(membership: &mut AllianceMembership, now: i64) {
-    let daily_epoch = now / 86_400;
-    let weekly_epoch = now / 604_800;
-    let monthly_epoch = now / 2_592_000;
+    let daily_epoch = daily_epoch(now);
+    let weekly_epoch = weekly_epoch(now);
+    let monthly_epoch = monthly_epoch(now);
 
     if membership.daily_epoch != daily_epoch {
         membership.daily_epoch = daily_epoch;
@@ -3146,9 +3176,9 @@ fn refresh_alliance_level(alliance: &mut AllianceState) {
 }
 
 fn sync_quest_periods(quest: &mut Account<QuestState>, now: i64) {
-    let daily_epoch = now / 86_400;
-    let weekly_epoch = now / 604_800;
-    let monthly_epoch = now / 2_592_000;
+    let daily_epoch = daily_epoch(now);
+    let weekly_epoch = weekly_epoch(now);
+    let monthly_epoch = monthly_epoch(now);
 
     if quest.daily_epoch != daily_epoch {
         quest.daily_epoch = daily_epoch;
@@ -3175,9 +3205,9 @@ enum QuestProgressMetric {
 }
 
 fn sync_quest_progress_periods(progress: &mut QuestProgressState, now: i64) {
-    let daily_epoch = now / 86_400;
-    let weekly_epoch = now / 604_800;
-    let monthly_epoch = now / 2_592_000;
+    let daily_epoch = daily_epoch(now);
+    let weekly_epoch = weekly_epoch(now);
+    let monthly_epoch = monthly_epoch(now);
 
     if progress.daily_epoch != daily_epoch {
         progress.daily_epoch = daily_epoch;
@@ -3228,9 +3258,9 @@ fn validate_quest_progress_pda(
 fn empty_quest_progress(authority: Pubkey, now: i64) -> QuestProgressState {
     QuestProgressState {
         authority,
-        daily_epoch: now / 86_400,
-        weekly_epoch: now / 604_800,
-        monthly_epoch: now / 2_592_000,
+        daily_epoch: daily_epoch(now),
+        weekly_epoch: weekly_epoch(now),
+        monthly_epoch: monthly_epoch(now),
         daily_store_packs_bought: 0,
         weekly_store_packs_bought: 0,
         monthly_store_packs_bought: 0,
@@ -3257,9 +3287,9 @@ fn empty_quest_progress(authority: Pubkey, now: i64) -> QuestProgressState {
 fn empty_quest_reward_targets(authority: Pubkey, now: i64) -> QuestRewardTargetState {
     QuestRewardTargetState {
         authority,
-        daily_epoch: now / 86_400,
-        weekly_epoch: now / 604_800,
-        monthly_epoch: now / 2_592_000,
+        daily_epoch: daily_epoch(now),
+        weekly_epoch: weekly_epoch(now),
+        monthly_epoch: monthly_epoch(now),
         daily_store_packs_planet: Pubkey::default(),
         weekly_store_packs_planet: Pubkey::default(),
         monthly_store_packs_planet: Pubkey::default(),
@@ -3284,9 +3314,9 @@ fn empty_quest_reward_targets(authority: Pubkey, now: i64) -> QuestRewardTargetS
 }
 
 fn sync_quest_reward_target_periods(targets: &mut QuestRewardTargetState, now: i64) {
-    let daily_epoch = now / 86_400;
-    let weekly_epoch = now / 604_800;
-    let monthly_epoch = now / 2_592_000;
+    let daily_epoch = daily_epoch(now);
+    let weekly_epoch = weekly_epoch(now);
+    let monthly_epoch = monthly_epoch(now);
 
     if targets.daily_epoch != daily_epoch {
         targets.daily_epoch = daily_epoch;
@@ -3503,7 +3533,7 @@ fn claim_daily_check_in(
     now: i64,
 ) -> Result<()> {
     sync_quest_periods(quest, now);
-    let day = now / 86_400;
+    let day = daily_epoch(now);
     require!(
         quest.daily_checkin_day != day,
         GameStateError::DailyCheckInAlreadyClaimed
@@ -3617,7 +3647,7 @@ fn claim_daily_check_in_live(
     now: i64,
 ) -> Result<()> {
     sync_quest_periods(quest, now);
-    let day = now / 86_400;
+    let day = daily_epoch(now);
     require!(
         quest.daily_checkin_day != day,
         GameStateError::DailyCheckInAlreadyClaimed
@@ -3800,9 +3830,9 @@ pub fn update_store_config(ctx: Context<UpdateStoreConfig>, enabled: bool) -> Re
 }
 
 fn sync_store_periods(store: &mut Account<StorePurchaseState>, now: i64) {
-    let daily_epoch = now / 86_400;
-    let weekly_epoch = now / 604_800;
-    let monthly_epoch = now / 2_592_000;
+    let daily_epoch = daily_epoch(now);
+    let weekly_epoch = weekly_epoch(now);
+    let monthly_epoch = monthly_epoch(now);
 
     if store.daily_epoch != daily_epoch {
         store.daily_epoch = daily_epoch;
@@ -4029,9 +4059,9 @@ pub fn purchase_store_pack(ctx: Context<PurchaseStorePack>, period: u8, pack_id:
     let purchase_state = &mut ctx.accounts.purchase_state;
     if purchase_state.authority == Pubkey::default() {
         purchase_state.authority = ctx.accounts.authority.key();
-        purchase_state.daily_epoch = now / 86_400;
-        purchase_state.weekly_epoch = now / 604_800;
-        purchase_state.monthly_epoch = now / 2_592_000;
+        purchase_state.daily_epoch = daily_epoch(now);
+        purchase_state.weekly_epoch = weekly_epoch(now);
+        purchase_state.monthly_epoch = monthly_epoch(now);
         purchase_state.daily_purchased_mask = 0;
         purchase_state.weekly_purchased_mask = 0;
         purchase_state.monthly_purchased_mask = 0;
