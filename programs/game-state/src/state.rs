@@ -16,6 +16,16 @@ pub struct PlayerProfile {
 
 #[account]
 #[derive(InitSpace)]
+pub struct PlanetOwnerIndex {
+    pub authority: Pubkey,
+    pub slot: u32,
+    pub planet: Pubkey,
+    pub active: bool,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct AuthorizedVault {
     pub authority: Pubkey,
     pub vault: Pubkey,

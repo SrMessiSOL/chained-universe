@@ -271,7 +271,9 @@ pub fn cancel_planet_listing(ctx: Context<CancelPlanetListing>) -> Result<()> {
     Ok(())
 }
 
-pub fn buy_planet_listing(ctx: Context<BuyPlanetListing>) -> Result<()> {
+pub fn buy_planet_listing<'info>(
+    ctx: Context<'_, '_, '_, 'info, BuyPlanetListing<'info>>,
+) -> Result<()> {
     require!(!ctx.accounts.listing.filled, MarketError::AlreadyFilled);
     require_keys_eq!(
         ctx.accounts.seller_counter.seller,
@@ -353,32 +355,44 @@ pub fn buy_planet_listing(ctx: Context<BuyPlanetListing>) -> Result<()> {
         )?;
     }
 
+    let mut transfer_accounts = vec![
+        AccountMeta::new_readonly(ctx.accounts.seller.key(), false),
+        AccountMeta::new(ctx.accounts.buyer.key(), true),
+        AccountMeta::new(ctx.accounts.buyer_profile.key(), false),
+        AccountMeta::new(ctx.accounts.planet.key(), false),
+        AccountMeta::new(ctx.accounts.planet_coords.key(), false),
+        AccountMeta::new_readonly(ctx.accounts.market_escrow_authority.key(), true),
+        AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+    ];
+    transfer_accounts.extend(ctx.remaining_accounts.iter().map(|account| {
+        if account.is_writable {
+            AccountMeta::new(account.key(), account.is_signer)
+        } else {
+            AccountMeta::new_readonly(account.key(), account.is_signer)
+        }
+    }));
+
     let transfer_ix = Instruction {
         program_id: ctx.accounts.game_program.key(),
-        accounts: vec![
-            AccountMeta::new_readonly(ctx.accounts.seller.key(), false),
-            AccountMeta::new(ctx.accounts.buyer.key(), true),
-            AccountMeta::new(ctx.accounts.buyer_profile.key(), false),
-            AccountMeta::new(ctx.accounts.planet.key(), false),
-            AccountMeta::new(ctx.accounts.planet_coords.key(), false),
-            AccountMeta::new_readonly(ctx.accounts.market_escrow_authority.key(), true),
-            AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
-        ],
+        accounts: transfer_accounts,
         data: TRANSFER_PLANET_FROM_MARKET_DISCRIMINATOR.to_vec(),
     };
 
+    let mut transfer_infos: Vec<AccountInfo<'info>> = vec![
+        ctx.accounts.seller.to_account_info(),
+        ctx.accounts.buyer.to_account_info(),
+        ctx.accounts.buyer_profile.to_account_info(),
+        ctx.accounts.planet.to_account_info(),
+        ctx.accounts.planet_coords.to_account_info(),
+        ctx.accounts.market_escrow_authority.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+        ctx.accounts.game_program.to_account_info(),
+    ];
+    transfer_infos.extend(ctx.remaining_accounts.iter().cloned());
+
     anchor_lang::solana_program::program::invoke_signed(
         &transfer_ix,
-        &[
-            ctx.accounts.seller.to_account_info(),
-            ctx.accounts.buyer.to_account_info(),
-            ctx.accounts.buyer_profile.to_account_info(),
-            ctx.accounts.planet.to_account_info(),
-            ctx.accounts.planet_coords.to_account_info(),
-            ctx.accounts.market_escrow_authority.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-            ctx.accounts.game_program.to_account_info(),
-        ],
+        &transfer_infos,
         authority_seeds,
     )?;
 

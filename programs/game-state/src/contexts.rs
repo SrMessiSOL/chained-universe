@@ -194,8 +194,6 @@ pub struct InitializeColonyVault<'info> {
     pub player_profile: Box<Account<'info, PlayerProfile>>,
     #[account(
         mut,
-        seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()],
-        bump = source_planet.bump,
         has_one = authority @ GameStateError::Unauthorized
     )]
     pub source_planet: Box<Account<'info, PlanetState>>,
@@ -216,6 +214,40 @@ pub struct InitializeColonyVault<'info> {
     /// CHECK: PDA, owner, and contents are validated/initialized manually.
     #[account(mut)]
     pub quest_progress: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(slot: u32)]
+pub struct SyncPlanetOwnerIndexVault<'info> {
+    #[account(mut)]
+    pub vault_signer: Signer<'info>,
+    /// CHECK: authority is validated through player profile and authorized vault.
+    pub authority: UncheckedAccount<'info>,
+    #[account(
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump = authorized_vault.bump,
+    )]
+    pub authorized_vault: Account<'info, AuthorizedVault>,
+    #[account(
+        mut,
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Account<'info, PlayerProfile>,
+    #[account(
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub planet_state: Account<'info, PlanetState>,
+    #[account(
+        init_if_needed,
+        payer = vault_signer,
+        space = PLANET_OWNER_INDEX_SPACE,
+        seeds = [b"planet_owner_index", authority.key().as_ref(), &slot.to_le_bytes()],
+        bump
+    )]
+    pub owner_index: Account<'info, PlanetOwnerIndex>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1029,8 +1061,6 @@ pub struct ResolveColonizeVault<'info> {
 
     #[account(
         mut,
-        seeds = [b"planet_state", authority.key().as_ref(), &source_planet.planet_index.to_le_bytes()],
-        bump = source_planet.bump,
         has_one = authority @ GameStateError::Unauthorized
     )]
     pub source_planet: Box<Account<'info, PlanetState>>,

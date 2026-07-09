@@ -62,7 +62,9 @@ pub mod market {
         instructions::cancel_planet_listing(ctx)
     }
 
-    pub fn buy_planet_listing(ctx: Context<BuyPlanetListing>) -> Result<()> {
+    pub fn buy_planet_listing<'info>(
+        ctx: Context<'_, '_, '_, 'info, BuyPlanetListing<'info>>,
+    ) -> Result<()> {
         instructions::buy_planet_listing(ctx)
     }
 }

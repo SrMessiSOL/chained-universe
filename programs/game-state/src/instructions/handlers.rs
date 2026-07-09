@@ -153,8 +153,8 @@ pub fn extend_vault(ctx: Context<ManageVault>, expires_at: i64) -> Result<()> {
 /// Vault-signed: initialize homeworld.
 /// Creates both `planet_state` and `planet_coords` atomically.
 /// If `planet_coords` already exists for these coordinates the tx fails — client retries with new coords.
-pub fn initialize_homeworld(
-    ctx: Context<InitializePlanetVault>,
+pub fn initialize_homeworld<'info>(
+    ctx: Context<'_, '_, '_, 'info, InitializePlanetVault<'info>>,
     params: InitializeHomeworldParams,
 ) -> Result<()> {
     let now = chain_now()?;
@@ -305,14 +305,28 @@ pub fn initialize_homeworld(
         &ctx.accounts.system_program.to_account_info(),
         ctx.bumps.planet_state,
         &planet_params,
-    )
+    )?;
+
+    if let Some(owner_index_info) = ctx.remaining_accounts.first() {
+        create_or_update_planet_owner_index(
+            owner_index_info,
+            &ctx.accounts.vault_signer.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            authority,
+            ctx.accounts.planet_state.planet_index,
+            ctx.accounts.planet_state.key(),
+            ctx.program_id,
+        )?;
+    }
+
+    Ok(())
 }
 
 /// Vault-signed: initialize colony.
 /// Creates both `planet_state` and `planet_coords` atomically.
 /// If `planet_coords` already exists the tx fails — client shows "slot occupied".
-pub fn initialize_colony(
-    ctx: Context<InitializeColonyVault>,
+pub fn initialize_colony<'info>(
+    ctx: Context<'_, '_, '_, 'info, InitializeColonyVault<'info>>,
     params: InitializeColonyParams,
     slot: u8,
 ) -> Result<()> {
@@ -473,6 +487,18 @@ pub fn initialize_colony(
         &planet_params,
     )?;
 
+    if let Some(owner_index_info) = ctx.remaining_accounts.get(1) {
+        create_or_update_planet_owner_index(
+            owner_index_info,
+            &ctx.accounts.vault_signer.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            authority,
+            ctx.accounts.planet_state.planet_index,
+            ctx.accounts.planet_state.key(),
+            ctx.program_id,
+        )?;
+    }
+
     ctx.accounts.source_planet.clear_mission(slot as usize);
     ctx.accounts.source_planet.active_missions =
         ctx.accounts.source_planet.active_missions.saturating_sub(1);
@@ -487,6 +513,42 @@ pub fn initialize_colony(
         1,
         Some(ctx.accounts.source_planet.key()),
     )
+}
+
+pub fn sync_planet_owner_index_vault(
+    ctx: Context<SyncPlanetOwnerIndexVault>,
+    slot: u32,
+) -> Result<()> {
+    require_active_vault(
+        ctx.accounts.vault_signer.key(),
+        &ctx.accounts.authorized_vault,
+        ctx.accounts.authority.key(),
+    )?;
+    require_keys_eq!(
+        ctx.accounts.planet_state.authority,
+        ctx.accounts.authority.key(),
+        GameStateError::Unauthorized
+    );
+
+    let owner_index = &mut ctx.accounts.owner_index;
+    if owner_index.authority != Pubkey::default() {
+        require_keys_eq!(
+            owner_index.authority,
+            ctx.accounts.authority.key(),
+            GameStateError::Unauthorized
+        );
+        require!(
+            !owner_index.active || owner_index.planet == ctx.accounts.planet_state.key(),
+            GameStateError::InvalidArgs
+        );
+    }
+
+    owner_index.authority = ctx.accounts.authority.key();
+    owner_index.slot = slot;
+    owner_index.planet = ctx.accounts.planet_state.key();
+    owner_index.active = true;
+    owner_index.bump = ctx.bumps.owner_index;
+    Ok(())
 }
 
 pub fn initialize_public_homeworld(
@@ -1592,6 +1654,99 @@ fn write_program_account<T: AccountSerialize>(
     require!(encoded.len() <= data.len(), GameStateError::InvalidArgs);
     data[..encoded.len()].copy_from_slice(&encoded);
     Ok(())
+}
+
+fn write_planet_owner_index(
+    account_info: &AccountInfo,
+    authority: Pubkey,
+    slot: u32,
+    planet: Pubkey,
+    active: bool,
+    bump: u8,
+) -> Result<()> {
+    write_program_account(
+        account_info,
+        &PlanetOwnerIndex {
+            authority,
+            slot,
+            planet,
+            active,
+            bump,
+        },
+    )
+}
+
+fn create_or_update_planet_owner_index<'info>(
+    account_info: &AccountInfo<'info>,
+    payer_info: &AccountInfo<'info>,
+    system_program_info: &AccountInfo<'info>,
+    authority: Pubkey,
+    slot: u32,
+    planet: Pubkey,
+    program_id: &Pubkey,
+) -> Result<()> {
+    let slot_bytes = slot.to_le_bytes();
+    let (expected_index, bump) = Pubkey::find_program_address(
+        &[b"planet_owner_index", authority.as_ref(), &slot_bytes],
+        program_id,
+    );
+    require_keys_eq!(
+        account_info.key(),
+        expected_index,
+        GameStateError::InvalidArgs
+    );
+
+    if account_info.data_is_empty() {
+        let rent = Rent::get()?;
+        let lamports = rent.minimum_balance(PLANET_OWNER_INDEX_SPACE);
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"planet_owner_index",
+            authority.as_ref(),
+            &slot_bytes,
+            &[bump],
+        ]];
+        anchor_lang::system_program::create_account(
+            CpiContext::new_with_signer(
+                system_program_info.clone(),
+                anchor_lang::system_program::CreateAccount {
+                    from: payer_info.clone(),
+                    to: account_info.clone(),
+                },
+                signer_seeds,
+            ),
+            lamports,
+            PLANET_OWNER_INDEX_SPACE as u64,
+            program_id,
+        )?;
+    } else {
+        let existing: PlanetOwnerIndex = read_program_account(account_info, program_id)?;
+        require_keys_eq!(existing.authority, authority, GameStateError::Unauthorized);
+        require!(existing.slot == slot, GameStateError::InvalidArgs);
+        require!(
+            !existing.active || existing.planet == planet,
+            GameStateError::InvalidArgs
+        );
+    }
+
+    write_planet_owner_index(account_info, authority, slot, planet, true, bump)
+}
+
+fn deactivate_planet_owner_index_if_present(
+    account_info: Option<&AccountInfo<'_>>,
+    authority: Pubkey,
+    planet: Pubkey,
+    program_id: &Pubkey,
+) -> Result<()> {
+    let Some(info) = account_info else {
+        return Ok(());
+    };
+    if info.data_is_empty() {
+        return Ok(());
+    }
+    let index: PlanetOwnerIndex = read_program_account(info, program_id)?;
+    require_keys_eq!(index.authority, authority, GameStateError::Unauthorized);
+    require_keys_eq!(index.planet, planet, GameStateError::InvalidArgs);
+    write_planet_owner_index(info, index.authority, index.slot, index.planet, false, index.bump)
 }
 
 struct PlanetDepositFields {
@@ -6004,7 +6159,9 @@ pub fn transfer_planet(ctx: Context<TransferPlanet>) -> Result<()> {
     Ok(())
 }
 
-pub fn transfer_planet_from_market(ctx: Context<TransferPlanetFromMarket>) -> Result<()> {
+pub fn transfer_planet_from_market<'info>(
+    ctx: Context<'_, '_, '_, 'info, TransferPlanetFromMarket<'info>>,
+) -> Result<()> {
     let (expected_market_authority, _) =
         Pubkey::find_program_address(&[b"market_authority"], &MARKET_PROGRAM_ID);
     require_keys_eq!(
@@ -6013,6 +6170,7 @@ pub fn transfer_planet_from_market(ctx: Context<TransferPlanetFromMarket>) -> Re
         GameStateError::Unauthorized
     );
 
+    let planet_key = ctx.accounts.planet_state.key();
     let planet = &mut ctx.accounts.planet_state;
     let coords = &mut ctx.accounts.planet_coords;
     let seller = ctx.accounts.seller.key();
@@ -6024,6 +6182,25 @@ pub fn transfer_planet_from_market(ctx: Context<TransferPlanetFromMarket>) -> Re
         ctx.accounts.new_player_profile.authority = new_authority;
         ctx.accounts.new_player_profile.bump = ctx.bumps.new_player_profile;
     }
+
+    let new_owner_slot = ctx.accounts.new_player_profile.planet_count;
+    if let Some(buyer_index_info) = ctx.remaining_accounts.first() {
+        create_or_update_planet_owner_index(
+            buyer_index_info,
+            &ctx.accounts.new_authority.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            new_authority,
+            new_owner_slot,
+            planet_key,
+            ctx.program_id,
+        )?;
+    }
+    deactivate_planet_owner_index_if_present(
+        ctx.remaining_accounts.get(1),
+        seller,
+        planet_key,
+        ctx.program_id,
+    )?;
 
     planet.authority = new_authority;
     planet.player = ctx.accounts.new_player_profile.key();

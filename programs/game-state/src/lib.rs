@@ -69,19 +69,26 @@ pub mod game_state {
         instructions::extend_vault(ctx, expires_at)
     }
 
-    pub fn initialize_homeworld(
-        ctx: Context<InitializePlanetVault>,
+    pub fn initialize_homeworld<'info>(
+        ctx: Context<'_, '_, '_, 'info, InitializePlanetVault<'info>>,
         params: InitializeHomeworldParams,
     ) -> Result<()> {
         instructions::initialize_homeworld(ctx, params)
     }
 
-    pub fn initialize_colony(
-        ctx: Context<InitializeColonyVault>,
+    pub fn initialize_colony<'info>(
+        ctx: Context<'_, '_, '_, 'info, InitializeColonyVault<'info>>,
         params: InitializeColonyParams,
         slot: u8,
     ) -> Result<()> {
         instructions::initialize_colony(ctx, params, slot)
+    }
+
+    pub fn sync_planet_owner_index_vault(
+        ctx: Context<SyncPlanetOwnerIndexVault>,
+        slot: u32,
+    ) -> Result<()> {
+        instructions::sync_planet_owner_index_vault(ctx, slot)
     }
 
     pub fn initialize_public_homeworld(
@@ -455,7 +462,9 @@ pub mod game_state {
         instructions::transfer_planet(ctx)
     }
 
-    pub fn transfer_planet_from_market(ctx: Context<TransferPlanetFromMarket>) -> Result<()> {
+    pub fn transfer_planet_from_market<'info>(
+        ctx: Context<'_, '_, '_, 'info, TransferPlanetFromMarket<'info>>,
+    ) -> Result<()> {
         instructions::transfer_planet_from_market(ctx)
     }
 
