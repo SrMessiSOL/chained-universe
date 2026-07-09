@@ -34,6 +34,18 @@ pub(crate) fn copy_name<const N: usize>(value: &str, fallback: &str) -> [u8; N] 
     out
 }
 
+fn checked_sum_u32(values: &[u32]) -> Result<u32> {
+    values.iter().try_fold(0u32, |acc, value| {
+        acc.checked_add(*value).ok_or(GameStateError::InvalidArgs.into())
+    })
+}
+
+fn checked_sum_u64(values: &[u64]) -> Result<u64> {
+    values.iter().try_fold(0u64, |acc, value| {
+        acc.checked_add(*value).ok_or(GameStateError::InvalidArgs.into())
+    })
+}
+
 pub(crate) fn pow15(n: u64) -> u64 {
     let mut r: u64 = 1_000;
     for _ in 0..n {
@@ -1608,37 +1620,40 @@ pub(crate) fn launch_fleet_planet(
         GameStateError::InvalidMission
     );
 
-    let total_ships = params.light_fighter
-        + params.heavy_fighter
-        + params.cruiser
-        + params.battleship
-        + params.battlecruiser
-        + params.bomber
-        + params.destroyer
-        + params.deathstar
-        + params.small_cargo
-        + params.large_cargo
-        + params.recycler
-        + params.espionage_probe
-        + params.colony_ship;
+    let total_ships = checked_sum_u32(&[
+        params.light_fighter,
+        params.heavy_fighter,
+        params.cruiser,
+        params.battleship,
+        params.battlecruiser,
+        params.bomber,
+        params.destroyer,
+        params.deathstar,
+        params.small_cargo,
+        params.large_cargo,
+        params.recycler,
+        params.espionage_probe,
+        params.colony_ship,
+    ])?;
 
     require!(total_ships > 0, GameStateError::EmptyFleet);
     if params.mission_type == MISSION_ESPIONAGE {
         require!(params.espionage_probe > 0, GameStateError::EmptyFleet);
         require!(
-            params.light_fighter
-                + params.heavy_fighter
-                + params.cruiser
-                + params.battleship
-                + params.battlecruiser
-                + params.bomber
-                + params.destroyer
-                + params.deathstar
-                + params.small_cargo
-                + params.large_cargo
-                + params.recycler
-                + params.colony_ship
-                == 0,
+            checked_sum_u32(&[
+                params.light_fighter,
+                params.heavy_fighter,
+                params.cruiser,
+                params.battleship,
+                params.battlecruiser,
+                params.bomber,
+                params.destroyer,
+                params.deathstar,
+                params.small_cargo,
+                params.large_cargo,
+                params.recycler,
+                params.colony_ship,
+            ])? == 0,
             GameStateError::InvalidMission
         );
         require!(
@@ -1749,8 +1764,13 @@ pub(crate) fn launch_fleet_planet(
         params.cruiser,
         params.battleship,
     );
+    let cargo_total = checked_sum_u64(&[
+        params.cargo_metal,
+        params.cargo_crystal,
+        params.cargo_deuterium,
+    ])?;
     require!(
-        params.cargo_metal + params.cargo_crystal + params.cargo_deuterium <= cap,
+        cargo_total <= cap,
         GameStateError::ExceedsCargo
     );
 
@@ -1816,14 +1836,12 @@ pub(crate) fn launch_fleet_planet(
         speed_factor,
     );
 
-    require!(
-        planet.deuterium >= params.cargo_deuterium + launch_fuel,
-        GameStateError::InsufficientDeuterium
-    );
+    let deuterium_needed = checked_sum_u64(&[params.cargo_deuterium, launch_fuel])?;
+    require!(planet.deuterium >= deuterium_needed, GameStateError::InsufficientDeuterium);
 
     planet.metal -= params.cargo_metal;
     planet.crystal -= params.cargo_crystal;
-    planet.deuterium -= params.cargo_deuterium + launch_fuel;
+    planet.deuterium -= deuterium_needed;
 
     planet.light_fighter -= params.light_fighter;
     planet.heavy_fighter -= params.heavy_fighter;
@@ -2985,6 +3003,14 @@ pub(crate) fn resolve_transport_empty_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_launch_sums_reject_overflow() {
+        assert!(checked_sum_u32(&[u32::MAX, 1]).is_err());
+        assert!(checked_sum_u64(&[u64::MAX, 1]).is_err());
+        assert_eq!(checked_sum_u32(&[1, 2, 3]).unwrap(), 6);
+        assert_eq!(checked_sum_u64(&[1, 2, 3]).unwrap(), 6);
+    }
 
     fn test_planet() -> PlanetState {
         PlanetState {
