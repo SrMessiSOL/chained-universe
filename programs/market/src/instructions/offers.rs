@@ -9,7 +9,9 @@ use crate::constants::{
     TRANSFER_RESOURCES_FROM_MARKET_DISCRIMINATOR,
 };
 use crate::error::MarketError;
-use crate::state::{MarketConfig, MarketOffer, PlanetMarketObligation, SellerCounter};
+use crate::state::{
+    MarketConfig, MarketOffer, PlanetListingIndex, PlanetMarketObligation, SellerCounter,
+};
 use crate::types::ResourceType;
 use crate::utils::{build_market_resource_ix, require_protocol_antimatter_treasury};
 
@@ -36,6 +38,23 @@ fn decrement_market_obligation(
     Ok(())
 }
 
+fn require_planet_not_listed(listing_index: &AccountInfo, expected_planet: Pubkey) -> Result<()> {
+    if *listing_index.owner != crate::ID {
+        return Ok(());
+    }
+
+    let data = listing_index.try_borrow_data()?;
+    let mut data_ref: &[u8] = &data;
+    let index = PlanetListingIndex::try_deserialize(&mut data_ref)?;
+    require_keys_eq!(
+        index.planet,
+        expected_planet,
+        MarketError::InvalidSellerPlanet
+    );
+    require!(!index.active, MarketError::PlanetAlreadyListed);
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct CreateOffer<'info> {
     #[account(mut)]
@@ -48,6 +67,9 @@ pub struct CreateOffer<'info> {
     pub offer: Account<'info, MarketOffer>,
     #[account(init_if_needed, payer = seller, space = PLANET_MARKET_OBLIGATION_ACCOUNT_SPACE, seeds = [b"planet_market_obligation", seller_planet.key().as_ref()], bump)]
     pub market_obligation: Account<'info, PlanetMarketObligation>,
+    /// CHECK: optional per-planet listing index. Missing accounts mean no tracked listing.
+    #[account(seeds = [b"planet_listing_index", seller_planet.key().as_ref()], bump)]
+    pub listing_index: UncheckedAccount<'info>,
     /// CHECK: constrained to the configured game-state program id.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
@@ -155,6 +177,10 @@ pub fn create_offer(
         ctx.accounts.seller_counter.active_offers < MAX_OFFERS_PER_WALLET,
         MarketError::TooManyOffers,
     );
+    require_planet_not_listed(
+        &ctx.accounts.listing_index.to_account_info(),
+        ctx.accounts.seller_planet.key(),
+    )?;
 
     let counter = &mut ctx.accounts.seller_counter;
     let offer_id = counter.next_offer_id;
