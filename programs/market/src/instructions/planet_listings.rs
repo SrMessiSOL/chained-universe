@@ -12,7 +12,7 @@ use crate::utils::require_protocol_antimatter_treasury;
 
 const PLANET_STATE_AUTHORITY_OFFSET: usize = 8;
 const PLANET_STATE_INDEX_OFFSET: usize = 72;
-const PLANET_STATE_ACTIVE_MISSIONS_OFFSET: usize = 406;
+const PLANET_STATE_ACTIVE_MISSIONS_OFFSET: usize = 414;
 const PLANET_COORDS_GALAXY_OFFSET: usize = 8;
 const PLANET_COORDS_SYSTEM_OFFSET: usize = 10;
 const PLANET_COORDS_POSITION_OFFSET: usize = 12;
