@@ -458,7 +458,9 @@ pub mod game_state {
         instructions::resolve_colonize_vault(ctx, slot, now)
     }
 
-    pub fn transfer_planet(ctx: Context<TransferPlanet>) -> Result<()> {
+    pub fn transfer_planet<'info>(
+        ctx: Context<'_, '_, '_, 'info, TransferPlanet<'info>>,
+    ) -> Result<()> {
         instructions::transfer_planet(ctx)
     }
 

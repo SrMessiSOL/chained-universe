@@ -6140,10 +6140,32 @@ pub fn resolve_colonize_vault(
 /// The planet PDA address does not change — it stays seeded by the old wallet.
 /// The old wallet's wallet-signed fallback path for this planet stops working
 /// (by design — only the new authority owns it).
-pub fn transfer_planet(ctx: Context<TransferPlanet>) -> Result<()> {
+pub fn transfer_planet<'info>(
+    ctx: Context<'_, '_, '_, 'info, TransferPlanet<'info>>,
+) -> Result<()> {
+    let planet_key = ctx.accounts.planet_state.key();
     let planet = &mut ctx.accounts.planet_state;
     let coords = &mut ctx.accounts.planet_coords;
+    let old_authority = ctx.accounts.authority.key();
     let new_authority = ctx.accounts.new_authority.key();
+
+    require!(ctx.remaining_accounts.len() >= 2, GameStateError::InvalidArgs);
+    let new_owner_slot = ctx.accounts.new_player_profile.planet_count;
+    create_or_update_planet_owner_index(
+        &ctx.remaining_accounts[0],
+        &ctx.accounts.authority.to_account_info(),
+        &ctx.accounts.system_program.to_account_info(),
+        new_authority,
+        new_owner_slot,
+        planet_key,
+        ctx.program_id,
+    )?;
+    deactivate_planet_owner_index_if_present(
+        ctx.remaining_accounts.get(1),
+        old_authority,
+        planet_key,
+        ctx.program_id,
+    )?;
 
     // Update ownership fields. The planet PDA address intentionally stays fixed.
     planet.authority = new_authority;
