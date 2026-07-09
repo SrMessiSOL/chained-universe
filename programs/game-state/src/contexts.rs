@@ -1099,6 +1099,8 @@ pub struct TransferPlanet<'info> {
         constraint = planet_coords.authority == authority.key() @ GameStateError::Unauthorized,
     )]
     pub planet_coords: Account<'info, PlanetCoordinates>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
