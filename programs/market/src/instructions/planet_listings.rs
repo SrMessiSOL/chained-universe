@@ -15,7 +15,7 @@ use crate::utils::require_protocol_antimatter_treasury;
 
 const PLANET_STATE_AUTHORITY_OFFSET: usize = 8;
 const PLANET_STATE_INDEX_OFFSET: usize = 72;
-const PLANET_STATE_ACTIVE_MISSIONS_OFFSET: usize = 414;
+const PLANET_STATE_ACTIVE_MISSIONS_OFFSET: usize = 406;
 const PLANET_COORDS_GALAXY_OFFSET: usize = 8;
 const PLANET_COORDS_SYSTEM_OFFSET: usize = 10;
 const PLANET_COORDS_POSITION_OFFSET: usize = 12;
@@ -521,4 +521,35 @@ pub fn buy_planet_listing<'info>(
         price
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn planet_state_active_missions_offset_matches_layout() {
+        let mut offset = 8; // Anchor discriminator
+        offset += 32; // authority
+        offset += 32; // player
+        offset += 4; // planet_index
+        offset += 2; // galaxy
+        offset += 2; // system
+        offset += 1; // position
+        offset += 32; // name
+        offset += 4; // diameter
+        offset += 2; // temperature
+        offset += 2; // max_fields
+        offset += 2; // used_fields
+        offset += 23; // building and research level u8 fields
+        offset += 2; // research queue item + target
+        offset += 8; // research finish timestamp
+        offset += 2; // build queue item + target
+        offset += 8; // build finish timestamp
+        offset += 11 * 8; // resources, production rates, energy, and storage caps
+        offset += 7 * 8; // update/protection/market/attack timestamps
+        offset += 24 * 4; // fleet, defense, and missile counters
+
+        assert_eq!(PLANET_STATE_ACTIVE_MISSIONS_OFFSET, offset);
+    }
 }
