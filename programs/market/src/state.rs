@@ -41,6 +41,24 @@ pub struct PlanetListing {
 
 #[account]
 #[derive(InitSpace)]
+pub struct PlanetListingIndex {
+    pub planet: Pubkey,
+    pub listing: Pubkey,
+    pub seller: Pubkey,
+    pub active: bool,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct PlanetMarketObligation {
+    pub planet: Pubkey,
+    pub active_resource_offers: u32,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct SellerCounter {
     pub seller: Pubkey,
     pub next_offer_id: u32,

@@ -28,4 +28,8 @@ pub enum MarketError {
     HomeworldNotSellable,
     #[msg("Planet cannot be sold while missions are active.")]
     PlanetHasActiveMissions,
+    #[msg("Planet already has an active listing.")]
+    PlanetAlreadyListed,
+    #[msg("Planet has active market resource offers.")]
+    PlanetHasActiveMarketOffers,
 }

@@ -5,12 +5,36 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 use crate::constants::{
     ANTIMATTER_SCALE, GAME_STATE_PROGRAM_ID, LOCK_RESOURCES_FOR_MARKET_DISCRIMINATOR,
     MARKET_FEE_BPS, MAX_OFFERS_PER_WALLET, MIN_RESOURCE_AMOUNT, OFFER_ACCOUNT_SPACE,
-    RELEASE_RESOURCES_FROM_MARKET_DISCRIMINATOR, TRANSFER_RESOURCES_FROM_MARKET_DISCRIMINATOR,
+    PLANET_MARKET_OBLIGATION_ACCOUNT_SPACE, RELEASE_RESOURCES_FROM_MARKET_DISCRIMINATOR,
+    TRANSFER_RESOURCES_FROM_MARKET_DISCRIMINATOR,
 };
 use crate::error::MarketError;
-use crate::state::{MarketConfig, MarketOffer, SellerCounter};
+use crate::state::{MarketConfig, MarketOffer, PlanetMarketObligation, SellerCounter};
 use crate::types::ResourceType;
 use crate::utils::{build_market_resource_ix, require_protocol_antimatter_treasury};
+
+fn decrement_market_obligation(
+    obligation: &AccountInfo,
+    expected_planet: Pubkey,
+) -> Result<()> {
+    if *obligation.owner != crate::ID {
+        return Ok(());
+    }
+
+    let mut data = obligation.try_borrow_mut_data()?;
+    let mut data_ref: &[u8] = &data;
+    let mut obligation_state = PlanetMarketObligation::try_deserialize(&mut data_ref)?;
+    require_keys_eq!(
+        obligation_state.planet,
+        expected_planet,
+        MarketError::InvalidSellerPlanet
+    );
+    obligation_state.active_resource_offers =
+        obligation_state.active_resource_offers.saturating_sub(1);
+    let mut output: &mut [u8] = &mut data;
+    obligation_state.try_serialize(&mut output)?;
+    Ok(())
+}
 
 #[derive(Accounts)]
 pub struct CreateOffer<'info> {
@@ -22,6 +46,8 @@ pub struct CreateOffer<'info> {
     pub seller_counter: Account<'info, SellerCounter>,
     #[account(init, payer = seller, space = OFFER_ACCOUNT_SPACE, seeds = [b"market_offer", seller.key().as_ref(), &seller_counter.next_offer_id.to_le_bytes()], bump)]
     pub offer: Account<'info, MarketOffer>,
+    #[account(init_if_needed, payer = seller, space = PLANET_MARKET_OBLIGATION_ACCOUNT_SPACE, seeds = [b"planet_market_obligation", seller_planet.key().as_ref()], bump)]
+    pub market_obligation: Account<'info, PlanetMarketObligation>,
     /// CHECK: constrained to the configured game-state program id.
     #[account(address = GAME_STATE_PROGRAM_ID)]
     pub game_program: UncheckedAccount<'info>,
@@ -45,6 +71,9 @@ pub struct CancelOffer<'info> {
     /// CHECK: game-state planet account is constrained by address, owner, and used by game-state CPI.
     #[account(mut, address = offer.seller_planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
+    /// CHECK: optional backward-compatible per-planet market obligation counter.
+    #[account(mut, seeds = [b"planet_market_obligation", offer.seller_planet.as_ref()], bump)]
+    pub market_obligation: UncheckedAccount<'info>,
     /// CHECK: PDA authority is constrained by its fixed market_authority seeds.
     #[account(seeds = [b"market_authority"], bump)]
     pub market_authority: UncheckedAccount<'info>,
@@ -105,6 +134,9 @@ pub struct AcceptOffer<'info> {
     /// CHECK: game-state planet account is constrained by address, owner, and used by game-state CPI.
     #[account(mut, address = offer.seller_planet @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub seller_planet: UncheckedAccount<'info>,
+    /// CHECK: optional backward-compatible per-planet market obligation counter.
+    #[account(mut, seeds = [b"planet_market_obligation", offer.seller_planet.as_ref()], bump)]
+    pub market_obligation: UncheckedAccount<'info>,
 
     /// CHECK: game-state planet account is constrained by owner and used by game-state CPI.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
@@ -174,6 +206,21 @@ pub fn create_offer(
         filled: false,
         bump: ctx.bumps.offer,
     });
+    if ctx.accounts.market_obligation.planet == Pubkey::default() {
+        ctx.accounts.market_obligation.planet = ctx.accounts.seller_planet.key();
+        ctx.accounts.market_obligation.bump = ctx.bumps.market_obligation;
+    } else {
+        require_keys_eq!(
+            ctx.accounts.market_obligation.planet,
+            ctx.accounts.seller_planet.key(),
+            MarketError::InvalidSellerPlanet
+        );
+    }
+    ctx.accounts.market_obligation.active_resource_offers = ctx
+        .accounts
+        .market_obligation
+        .active_resource_offers
+        .saturating_add(1);
 
     ctx.accounts.market_config.total_offers =
         ctx.accounts.market_config.total_offers.saturating_add(1);
@@ -222,6 +269,10 @@ pub fn cancel_offer(ctx: Context<CancelOffer>) -> Result<()> {
 
     ctx.accounts.seller_counter.active_offers =
         ctx.accounts.seller_counter.active_offers.saturating_sub(1);
+    decrement_market_obligation(
+        &ctx.accounts.market_obligation.to_account_info(),
+        ctx.accounts.offer.seller_planet,
+    )?;
 
     msg!("Offer cancelled: offer_id={}", ctx.accounts.offer.offer_id);
     Ok(())
@@ -330,6 +381,10 @@ pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
         ctx.accounts.offer.filled = true;
         ctx.accounts.seller_counter.active_offers =
             ctx.accounts.seller_counter.active_offers.saturating_sub(1);
+        decrement_market_obligation(
+            &ctx.accounts.market_obligation.to_account_info(),
+            ctx.accounts.offer.seller_planet,
+        )?;
         ctx.accounts.market_config.total_volume =
             ctx.accounts.market_config.total_volume.saturating_add(price as u128);
 
