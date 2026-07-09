@@ -4,10 +4,13 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use crate::constants::{
     ANTIMATTER_SCALE, GAME_STATE_PROGRAM_ID, MARKET_FEE_BPS, MAX_OFFERS_PER_WALLET,
-    PLANET_LISTING_ACCOUNT_SPACE, TRANSFER_PLANET_FROM_MARKET_DISCRIMINATOR,
+    PLANET_LISTING_ACCOUNT_SPACE, PLANET_LISTING_INDEX_ACCOUNT_SPACE,
+    TRANSFER_PLANET_FROM_MARKET_DISCRIMINATOR,
 };
 use crate::error::MarketError;
-use crate::state::{MarketConfig, PlanetListing, SellerCounter};
+use crate::state::{
+    MarketConfig, PlanetListing, PlanetListingIndex, PlanetMarketObligation, SellerCounter,
+};
 use crate::utils::require_protocol_antimatter_treasury;
 
 const PLANET_STATE_AUTHORITY_OFFSET: usize = 8;
@@ -104,6 +107,57 @@ fn validate_planet_coords(
     Ok(())
 }
 
+fn deactivate_listing_index(
+    listing_index: &AccountInfo,
+    expected_listing: Pubkey,
+    expected_planet: Pubkey,
+) -> Result<()> {
+    if *listing_index.owner != crate::ID {
+        return Ok(());
+    }
+
+    let mut data = listing_index.try_borrow_mut_data()?;
+    let mut data_ref: &[u8] = &data;
+    let mut index = PlanetListingIndex::try_deserialize(&mut data_ref)?;
+    require_keys_eq!(
+        index.listing,
+        expected_listing,
+        MarketError::InvalidSellerPlanet
+    );
+    require_keys_eq!(
+        index.planet,
+        expected_planet,
+        MarketError::InvalidSellerPlanet
+    );
+    index.active = false;
+    let mut output: &mut [u8] = &mut data;
+    index.try_serialize(&mut output)?;
+    Ok(())
+}
+
+fn require_no_market_obligations(
+    obligation: &AccountInfo,
+    expected_planet: Pubkey,
+) -> Result<()> {
+    if *obligation.owner != crate::ID {
+        return Ok(());
+    }
+
+    let data = obligation.try_borrow_data()?;
+    let mut data_ref: &[u8] = &data;
+    let obligation_state = PlanetMarketObligation::try_deserialize(&mut data_ref)?;
+    require_keys_eq!(
+        obligation_state.planet,
+        expected_planet,
+        MarketError::InvalidSellerPlanet
+    );
+    require!(
+        obligation_state.active_resource_offers == 0,
+        MarketError::PlanetHasActiveMarketOffers
+    );
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct CreatePlanetListing<'info> {
     #[account(mut)]
@@ -114,6 +168,11 @@ pub struct CreatePlanetListing<'info> {
     pub seller_counter: Account<'info, SellerCounter>,
     #[account(init, payer = seller, space = PLANET_LISTING_ACCOUNT_SPACE, seeds = [b"planet_listing", seller.key().as_ref(), &seller_counter.next_offer_id.to_le_bytes()], bump)]
     pub listing: Account<'info, PlanetListing>,
+    #[account(init_if_needed, payer = seller, space = PLANET_LISTING_INDEX_ACCOUNT_SPACE, seeds = [b"planet_listing_index", planet.key().as_ref()], bump)]
+    pub listing_index: Account<'info, PlanetListingIndex>,
+    /// CHECK: optional per-planet market obligation counter. Missing accounts mean no tracked obligations.
+    #[account(seeds = [b"planet_market_obligation", planet.key().as_ref()], bump)]
+    pub market_obligation: UncheckedAccount<'info>,
     /// CHECK: game-state planet account is constrained by owner and validated by raw state fields.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub planet: UncheckedAccount<'info>,
@@ -131,6 +190,9 @@ pub struct CancelPlanetListing<'info> {
     pub listing: Account<'info, PlanetListing>,
     #[account(mut, seeds = [b"seller_counter", seller.key().as_ref()], bump = seller_counter.bump)]
     pub seller_counter: Account<'info, SellerCounter>,
+    /// CHECK: optional backward-compatible per-planet listing index.
+    #[account(mut, seeds = [b"planet_listing_index", listing.planet.as_ref()], bump)]
+    pub listing_index: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -146,6 +208,10 @@ pub struct BuyPlanetListing<'info> {
 
     #[account(mut, seeds = [b"planet_listing", listing.seller.as_ref(), &listing.listing_id.to_le_bytes()], bump = listing.bump, close = seller)]
     pub listing: Account<'info, PlanetListing>,
+
+    /// CHECK: optional backward-compatible per-planet listing index.
+    #[account(mut, seeds = [b"planet_listing_index", listing.planet.as_ref()], bump)]
+    pub listing_index: UncheckedAccount<'info>,
 
     #[account(mut, seeds = [b"seller_counter", listing.seller.as_ref()], bump = seller_counter.bump)]
     pub seller_counter: Account<'info, SellerCounter>,
@@ -215,6 +281,14 @@ pub fn create_planet_listing(
         ctx.accounts.planet.key(),
         ctx.accounts.seller.key(),
     )?;
+    require!(
+        !ctx.accounts.listing_index.active,
+        MarketError::PlanetAlreadyListed
+    );
+    require_no_market_obligations(
+        &ctx.accounts.market_obligation.to_account_info(),
+        ctx.accounts.planet.key(),
+    )?;
 
     let counter = &mut ctx.accounts.seller_counter;
     let listing_id = counter.next_offer_id;
@@ -243,6 +317,13 @@ pub fn create_planet_listing(
         filled: false,
         bump: ctx.bumps.listing,
     });
+    ctx.accounts.listing_index.set_inner(PlanetListingIndex {
+        planet: ctx.accounts.planet.key(),
+        listing: ctx.accounts.listing.key(),
+        seller: ctx.accounts.seller.key(),
+        active: true,
+        bump: ctx.bumps.listing_index,
+    });
     ctx.accounts.market_config.total_offers =
         ctx.accounts.market_config.total_offers.saturating_add(1);
 
@@ -264,6 +345,11 @@ pub fn cancel_planet_listing(ctx: Context<CancelPlanetListing>) -> Result<()> {
     );
     ctx.accounts.seller_counter.active_offers =
         ctx.accounts.seller_counter.active_offers.saturating_sub(1);
+    deactivate_listing_index(
+        &ctx.accounts.listing_index.to_account_info(),
+        ctx.accounts.listing.key(),
+        ctx.accounts.listing.planet,
+    )?;
     msg!(
         "Planet listing cancelled: listing_id={}",
         ctx.accounts.listing.listing_id
@@ -285,6 +371,22 @@ pub fn buy_planet_listing<'info>(
         ctx.accounts.listing.seller,
         MarketError::Unauthorized
     );
+    if *ctx.accounts.listing_index.to_account_info().owner == crate::ID {
+        let listing_index_data = ctx.accounts.listing_index.try_borrow_data()?;
+        let mut data_ref: &[u8] = &listing_index_data;
+        let listing_index = PlanetListingIndex::try_deserialize(&mut data_ref)?;
+        require!(listing_index.active, MarketError::AlreadyFilled);
+        require_keys_eq!(
+            listing_index.listing,
+            ctx.accounts.listing.key(),
+            MarketError::InvalidSellerPlanet
+        );
+        require_keys_eq!(
+            listing_index.planet,
+            ctx.accounts.listing.planet,
+            MarketError::InvalidSellerPlanet
+        );
+    }
     validate_planet_authority(
         &ctx.accounts.planet.to_account_info(),
         ctx.accounts.listing.seller,
@@ -399,6 +501,11 @@ pub fn buy_planet_listing<'info>(
     ctx.accounts.listing.filled = true;
     ctx.accounts.seller_counter.active_offers =
         ctx.accounts.seller_counter.active_offers.saturating_sub(1);
+    deactivate_listing_index(
+        &ctx.accounts.listing_index.to_account_info(),
+        ctx.accounts.listing.key(),
+        ctx.accounts.listing.planet,
+    )?;
     ctx.accounts.market_config.total_volume = ctx
         .accounts
         .market_config

@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{MarketConfig, MarketOffer, PlanetListing};
+use crate::state::{
+    MarketConfig, MarketOffer, PlanetListing, PlanetListingIndex, PlanetMarketObligation,
+};
 
 pub const ANTIMATTER_DECIMALS: u8 = 6;
 pub const ANTIMATTER_SCALE: u64 = 1_000_000;
@@ -9,6 +11,9 @@ pub const MIN_RESOURCE_AMOUNT: u64 = 1_000;
 pub const MARKET_FEE_BPS: u64 = 25;
 pub const OFFER_ACCOUNT_SPACE: usize = 8 + MarketOffer::INIT_SPACE;
 pub const PLANET_LISTING_ACCOUNT_SPACE: usize = 8 + PlanetListing::INIT_SPACE;
+pub const PLANET_LISTING_INDEX_ACCOUNT_SPACE: usize = 8 + PlanetListingIndex::INIT_SPACE;
+pub const PLANET_MARKET_OBLIGATION_ACCOUNT_SPACE: usize =
+    8 + PlanetMarketObligation::INIT_SPACE;
 pub const MARKET_CONFIG_SPACE: usize = 8 + MarketConfig::INIT_SPACE;
 
 pub const PROTOCOL_AUTHORITY: Pubkey = Pubkey::new_from_array([
