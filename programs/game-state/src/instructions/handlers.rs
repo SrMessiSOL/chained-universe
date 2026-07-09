@@ -6292,6 +6292,10 @@ pub fn transfer_planet_from_market<'info>(
         ctx.accounts.new_player_profile.authority = new_authority;
         ctx.accounts.new_player_profile.bump = ctx.bumps.new_player_profile;
     }
+    require!(
+        planet.active_missions == 0,
+        GameStateError::PlanetHasActiveMissions
+    );
 
     let new_owner_slot = ctx.accounts.new_player_profile.planet_count;
     if let Some(buyer_index_info) = ctx.remaining_accounts.first() {
