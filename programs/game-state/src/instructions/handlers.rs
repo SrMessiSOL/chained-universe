@@ -12,6 +12,10 @@ use crate::utils::*;
 
 const SECONDS_PER_DAY: i64 = 86_400;
 const UNIX_TO_CIVIL_DAYS: i64 = 719_468;
+const MARKET_LISTING_INDEX_PLANET_OFFSET: usize = 8;
+const MARKET_LISTING_INDEX_ACTIVE_OFFSET: usize = 104;
+const MARKET_OBLIGATION_PLANET_OFFSET: usize = 8;
+const MARKET_OBLIGATION_ACTIVE_OFFERS_OFFSET: usize = 40;
 
 fn daily_epoch(now: i64) -> i64 {
     now.div_euclid(SECONDS_PER_DAY)
@@ -1747,6 +1751,81 @@ fn deactivate_planet_owner_index_if_present(
     require_keys_eq!(index.authority, authority, GameStateError::Unauthorized);
     require_keys_eq!(index.planet, planet, GameStateError::InvalidArgs);
     write_planet_owner_index(info, index.authority, index.slot, index.planet, false, index.bump)
+}
+
+fn read_checked_pubkey_at(data: &[u8], offset: usize) -> Result<Pubkey> {
+    require!(data.len() >= offset + 32, GameStateError::InvalidArgs);
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(&data[offset..offset + 32]);
+    Ok(Pubkey::new_from_array(bytes))
+}
+
+fn require_no_transfer_market_state(
+    listing_index_info: &AccountInfo<'_>,
+    market_obligation_info: &AccountInfo<'_>,
+    planet: Pubkey,
+) -> Result<()> {
+    let (expected_listing_index, _) =
+        Pubkey::find_program_address(&[b"planet_listing_index", planet.as_ref()], &MARKET_PROGRAM_ID);
+    require_keys_eq!(
+        listing_index_info.key(),
+        expected_listing_index,
+        GameStateError::InvalidArgs
+    );
+    if !listing_index_info.data_is_empty() {
+        require_keys_eq!(
+            *listing_index_info.owner,
+            MARKET_PROGRAM_ID,
+            GameStateError::UnauthorizedMarket
+        );
+        let data = listing_index_info.try_borrow_data()?;
+        let listed_planet = read_checked_pubkey_at(&data, MARKET_LISTING_INDEX_PLANET_OFFSET)?;
+        require_keys_eq!(listed_planet, planet, GameStateError::InvalidArgs);
+        require!(
+            data.len() > MARKET_LISTING_INDEX_ACTIVE_OFFSET,
+            GameStateError::InvalidArgs
+        );
+        require!(
+            data[MARKET_LISTING_INDEX_ACTIVE_OFFSET] == 0,
+            GameStateError::PlanetListedForSale
+        );
+    }
+
+    let (expected_market_obligation, _) = Pubkey::find_program_address(
+        &[b"planet_market_obligation", planet.as_ref()],
+        &MARKET_PROGRAM_ID,
+    );
+    require_keys_eq!(
+        market_obligation_info.key(),
+        expected_market_obligation,
+        GameStateError::InvalidArgs
+    );
+    if !market_obligation_info.data_is_empty() {
+        require_keys_eq!(
+            *market_obligation_info.owner,
+            MARKET_PROGRAM_ID,
+            GameStateError::UnauthorizedMarket
+        );
+        let data = market_obligation_info.try_borrow_data()?;
+        let obligation_planet = read_checked_pubkey_at(&data, MARKET_OBLIGATION_PLANET_OFFSET)?;
+        require_keys_eq!(obligation_planet, planet, GameStateError::InvalidArgs);
+        require!(
+            data.len() >= MARKET_OBLIGATION_ACTIVE_OFFERS_OFFSET + 4,
+            GameStateError::InvalidArgs
+        );
+        let active_offers = u32::from_le_bytes([
+            data[MARKET_OBLIGATION_ACTIVE_OFFERS_OFFSET],
+            data[MARKET_OBLIGATION_ACTIVE_OFFERS_OFFSET + 1],
+            data[MARKET_OBLIGATION_ACTIVE_OFFERS_OFFSET + 2],
+            data[MARKET_OBLIGATION_ACTIVE_OFFERS_OFFSET + 3],
+        ]);
+        require!(
+            active_offers == 0,
+            GameStateError::PlanetHasActiveMarketOffers
+        );
+    }
+
+    Ok(())
 }
 
 struct PlanetDepositFields {
@@ -6149,7 +6228,16 @@ pub fn transfer_planet<'info>(
     let old_authority = ctx.accounts.authority.key();
     let new_authority = ctx.accounts.new_authority.key();
 
-    require!(ctx.remaining_accounts.len() >= 2, GameStateError::InvalidArgs);
+    require!(
+        planet.active_missions == 0,
+        GameStateError::PlanetHasActiveMissions
+    );
+    require!(ctx.remaining_accounts.len() >= 4, GameStateError::InvalidArgs);
+    require_no_transfer_market_state(
+        &ctx.remaining_accounts[2],
+        &ctx.remaining_accounts[3],
+        planet_key,
+    )?;
     let new_owner_slot = ctx.accounts.new_player_profile.planet_count;
     create_or_update_planet_owner_index(
         &ctx.remaining_accounts[0],
