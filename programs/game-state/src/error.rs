@@ -87,4 +87,7 @@ pub enum GameStateError {
     LegacyPlanetStateDisabled,
     WrongQuestRewardPlanet,
     FaucetCooldownActive,
+    PlanetHasActiveMissions,
+    PlanetListedForSale,
+    PlanetHasActiveMarketOffers,
 }
