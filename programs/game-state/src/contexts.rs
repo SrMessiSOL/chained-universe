@@ -37,6 +37,35 @@ pub struct InitializePlayer<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeVaultForExistingPlayer<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        seeds = [b"player_profile", authority.key().as_ref()],
+        bump = player_profile.bump,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub player_profile: Box<Account<'info, PlayerProfile>>,
+    #[account(
+        init,
+        payer = authority,
+        space = AUTHORIZED_VAULT_SPACE,
+        seeds = [b"authorized_vault", authority.key().as_ref()],
+        bump
+    )]
+    pub authorized_vault: Box<Account<'info, AuthorizedVault>>,
+    #[account(
+        init,
+        payer = authority,
+        space = VAULT_BACKUP_SPACE,
+        seeds = [b"vault_backup", authority.key().as_ref()],
+        bump
+    )]
+    pub vault_backup: Account<'info, VaultBackup>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct RotateVault<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,

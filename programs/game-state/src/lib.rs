@@ -61,6 +61,28 @@ pub mod game_state {
         )
     }
 
+    pub fn initialize_vault_for_existing_player(
+        ctx: Context<InitializeVaultForExistingPlayer>,
+        vault: Pubkey,
+        expires_at: i64,
+        backup_version: u8,
+        backup_ciphertext: Vec<u8>,
+        backup_iv: [u8; 12],
+        backup_salt: [u8; 16],
+        backup_kdf_salt: [u8; 16],
+    ) -> Result<()> {
+        instructions::initialize_vault_for_existing_player(
+            ctx,
+            vault,
+            expires_at,
+            backup_version,
+            backup_ciphertext,
+            backup_iv,
+            backup_salt,
+            backup_kdf_salt,
+        )
+    }
+
     pub fn revoke_vault(ctx: Context<ManageVault>) -> Result<()> {
         instructions::revoke_vault(ctx)
     }
