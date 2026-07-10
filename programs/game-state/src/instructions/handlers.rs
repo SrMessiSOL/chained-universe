@@ -3392,7 +3392,7 @@ fn sync_quest_periods(quest: &mut Account<QuestState>, now: i64) {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum QuestProgressMetric {
     StorePacksBought,
     AntimatterSpent,
@@ -3623,6 +3623,40 @@ fn recurring_requirement_metric(req: QuestRequirement) -> QuestProgressMetric {
     }
 }
 
+fn period_has_metric_quest(period: u8, epoch: i64, metric: QuestProgressMetric) -> Result<bool> {
+    for slot in 0u8..12 {
+        let quest_id = if period == 1 { slot + 1 } else { slot };
+        let quest = rotating_quest(period, quest_id, epoch)?;
+        if recurring_requirement_metric(quest.req) == metric {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn lock_matching_quest_reward_targets(
+    targets: &mut QuestRewardTargetState,
+    now: i64,
+    metric: QuestProgressMetric,
+    planet_key: Pubkey,
+) -> Result<()> {
+    let periods = [
+        (1u8, daily_epoch(now)),
+        (2u8, weekly_epoch(now)),
+        (3u8, monthly_epoch(now)),
+    ];
+    for (period, epoch) in periods {
+        if !period_has_metric_quest(period, epoch, metric)? {
+            continue;
+        }
+        let slot = quest_target_slot_mut(targets, period, metric)?;
+        if *slot == Pubkey::default() {
+            *slot = planet_key;
+        }
+    }
+    Ok(())
+}
+
 fn lock_quest_reward_target(
     targets_info: Option<&AccountInfo>,
     authority: Pubkey,
@@ -3636,12 +3670,7 @@ fn lock_quest_reward_target(
     };
     let mut targets = validate_quest_reward_targets_pda(info, authority, program_id)?;
     sync_quest_reward_target_periods(&mut targets, now);
-    for period in [1u8, 2, 3] {
-        let slot = quest_target_slot_mut(&mut targets, period, metric)?;
-        if *slot == Pubkey::default() {
-            *slot = planet_key;
-        }
-    }
+    lock_matching_quest_reward_targets(&mut targets, now, metric, planet_key)?;
     targets.last_updated_ts = now;
     write_program_account(info, &targets)
 }
@@ -6633,6 +6662,43 @@ mod tests {
                         "duplicate period {period} epoch {epoch} quest slot {claim_id}"
                     );
                     signatures[quest_id as usize] = signature;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn quest_reward_target_lock_only_sets_periods_with_matching_active_metric() {
+        let authority = Pubkey::new_unique();
+        let planet = Pubkey::new_unique();
+        let metrics = [
+            QuestProgressMetric::StorePacksBought,
+            QuestProgressMetric::AntimatterSpent,
+            QuestProgressMetric::PlanetsColonized,
+            QuestProgressMetric::AttacksResolved,
+            QuestProgressMetric::TransportsResolved,
+            QuestProgressMetric::SpyMissionsResolved,
+        ];
+
+        for day in [0i64, 1, 6, 7, 29, 30, 91, 180, 365] {
+            let now = day * SECONDS_PER_DAY;
+            for metric in metrics {
+                let mut targets = empty_quest_reward_targets(authority, now);
+                lock_matching_quest_reward_targets(&mut targets, now, metric, planet)
+                    .unwrap_or_else(|_| panic!("failed to lock metric {metric:?} on day {day}"));
+
+                for (period, epoch) in [
+                    (1u8, daily_epoch(now)),
+                    (2u8, weekly_epoch(now)),
+                    (3u8, monthly_epoch(now)),
+                ] {
+                    let expected = period_has_metric_quest(period, epoch, metric).unwrap();
+                    let actual = *quest_target_slot_mut(&mut targets, period, metric).unwrap();
+                    assert_eq!(
+                        actual == planet,
+                        expected,
+                        "period {period} day {day} metric {metric:?}"
+                    );
                 }
             }
         }
