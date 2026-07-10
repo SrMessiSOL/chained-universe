@@ -674,19 +674,13 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         GameStateError::Unauthorized
     );
     if quest_state_info.owner == &anchor_lang::system_program::ID {
-        let rent = Rent::get()?.minimum_balance(QUEST_STATE_SPACE);
-        anchor_lang::system_program::create_account(
-            CpiContext::new_with_signer(
-                system_program_info.clone(),
-                anchor_lang::system_program::CreateAccount {
-                    from: payer_info.clone(),
-                    to: quest_state_info.clone(),
-                },
-                &[&[b"quest_state", authority.as_ref(), &[quest_state_bump]]],
-            ),
-            rent,
-            QUEST_STATE_SPACE as u64,
+        create_program_pda_account(
+            quest_state_info,
+            payer_info,
+            system_program_info,
+            QUEST_STATE_SPACE,
             program_id,
+            &[&[b"quest_state", authority.as_ref(), &[quest_state_bump]]],
         )?;
         let quest_state = QuestState {
             authority,
@@ -721,23 +715,17 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         GameStateError::Unauthorized
     );
     if quest_progress_info.owner == &anchor_lang::system_program::ID {
-        let rent = Rent::get()?.minimum_balance(QUEST_PROGRESS_STATE_SPACE);
-        anchor_lang::system_program::create_account(
-            CpiContext::new_with_signer(
-                system_program_info.clone(),
-                anchor_lang::system_program::CreateAccount {
-                    from: payer_info.clone(),
-                    to: quest_progress_info.clone(),
-                },
-                &[&[
-                    b"quest_progress",
-                    authority.as_ref(),
-                    &[quest_progress_bump],
-                ]],
-            ),
-            rent,
-            QUEST_PROGRESS_STATE_SPACE as u64,
+        create_program_pda_account(
+            quest_progress_info,
+            payer_info,
+            system_program_info,
+            QUEST_PROGRESS_STATE_SPACE,
             program_id,
+            &[&[
+                b"quest_progress",
+                authority.as_ref(),
+                &[quest_progress_bump],
+            ]],
         )?;
         let quest_progress = QuestProgressState {
             authority,
@@ -784,23 +772,17 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         GameStateError::Unauthorized
     );
     if quest_reward_targets_info.owner == &anchor_lang::system_program::ID {
-        let rent = Rent::get()?.minimum_balance(QUEST_REWARD_TARGET_STATE_SPACE);
-        anchor_lang::system_program::create_account(
-            CpiContext::new_with_signer(
-                system_program_info.clone(),
-                anchor_lang::system_program::CreateAccount {
-                    from: payer_info.clone(),
-                    to: quest_reward_targets_info.clone(),
-                },
-                &[&[
-                    b"quest_reward_targets",
-                    authority.as_ref(),
-                    &[quest_reward_targets_bump],
-                ]],
-            ),
-            rent,
-            QUEST_REWARD_TARGET_STATE_SPACE as u64,
+        create_program_pda_account(
+            quest_reward_targets_info,
+            payer_info,
+            system_program_info,
+            QUEST_REWARD_TARGET_STATE_SPACE,
             program_id,
+            &[&[
+                b"quest_reward_targets",
+                authority.as_ref(),
+                &[quest_reward_targets_bump],
+            ]],
         )?;
         let mut quest_reward_targets = empty_quest_reward_targets(authority, now);
         quest_reward_targets.bump = quest_reward_targets_bump;
@@ -1790,26 +1772,19 @@ fn create_or_update_planet_owner_index<'info>(
     );
 
     if account_info.data_is_empty() {
-        let rent = Rent::get()?;
-        let lamports = rent.minimum_balance(PLANET_OWNER_INDEX_SPACE);
         let signer_seeds: &[&[&[u8]]] = &[&[
             b"planet_owner_index",
             authority.as_ref(),
             &slot_bytes,
             &[bump],
         ]];
-        anchor_lang::system_program::create_account(
-            CpiContext::new_with_signer(
-                system_program_info.clone(),
-                anchor_lang::system_program::CreateAccount {
-                    from: payer_info.clone(),
-                    to: account_info.clone(),
-                },
-                signer_seeds,
-            ),
-            lamports,
-            PLANET_OWNER_INDEX_SPACE as u64,
+        create_program_pda_account(
+            account_info,
+            payer_info,
+            system_program_info,
+            PLANET_OWNER_INDEX_SPACE,
             program_id,
+            signer_seeds,
         )?;
     } else {
         let existing: PlanetOwnerIndex = read_program_account(account_info, program_id)?;

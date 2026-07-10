@@ -687,6 +687,75 @@ pub(crate) fn require_market_authority(market_authority: &Signer<'_>) -> Result<
     Ok(())
 }
 
+pub(crate) fn create_program_pda_account<'info>(
+    account_info: &AccountInfo<'info>,
+    payer_info: &AccountInfo<'info>,
+    system_program_info: &AccountInfo<'info>,
+    space: usize,
+    program_id: &Pubkey,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    require_keys_eq!(
+        *account_info.owner,
+        anchor_lang::system_program::ID,
+        GameStateError::InvalidArgs
+    );
+    require!(account_info.data_is_empty(), GameStateError::InvalidArgs);
+
+    let required_lamports = Rent::get()?.minimum_balance(space);
+    if account_info.lamports() == 0 {
+        anchor_lang::system_program::create_account(
+            CpiContext::new_with_signer(
+                system_program_info.clone(),
+                anchor_lang::system_program::CreateAccount {
+                    from: payer_info.clone(),
+                    to: account_info.clone(),
+                },
+                signer_seeds,
+            ),
+            required_lamports,
+            space as u64,
+            program_id,
+        )?;
+        return Ok(());
+    }
+
+    let top_up = required_lamports.saturating_sub(account_info.lamports());
+    if top_up > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                system_program_info.clone(),
+                anchor_lang::system_program::Transfer {
+                    from: payer_info.clone(),
+                    to: account_info.clone(),
+                },
+            ),
+            top_up,
+        )?;
+    }
+    anchor_lang::system_program::allocate(
+        CpiContext::new_with_signer(
+            system_program_info.clone(),
+            anchor_lang::system_program::Allocate {
+                account_to_allocate: account_info.clone(),
+            },
+            signer_seeds,
+        ),
+        space as u64,
+    )?;
+    anchor_lang::system_program::assign(
+        CpiContext::new_with_signer(
+            system_program_info.clone(),
+            anchor_lang::system_program::Assign {
+                account_to_assign: account_info.clone(),
+            },
+            signer_seeds,
+        ),
+        program_id,
+    )?;
+    Ok(())
+}
+
 pub(crate) fn create_planet_state<'info>(
     authority: Pubkey,
     player_profile: &mut Account<'info, PlayerProfile>,
@@ -734,9 +803,7 @@ pub(crate) fn create_planet_state<'info>(
 
     msg!("create_planet_state: incremented planet_count");
 
-    let rent = Rent::get()?;
     let space = PLANET_COORDS_SPACE;
-    let lamports = rent.minimum_balance(space);
 
     let signer_seeds: &[&[&[u8]]] = &[&[
         b"planet_coords",
@@ -746,18 +813,13 @@ pub(crate) fn create_planet_state<'info>(
         &[coords_bump],
     ]];
 
-    anchor_lang::system_program::create_account(
-        CpiContext::new_with_signer(
-            system_program_info.clone(),
-            anchor_lang::system_program::CreateAccount {
-                from: payer_info.clone(),
-                to: planet_coords_info.clone(),
-            },
-            signer_seeds,
-        ),
-        lamports,
-        space as u64,
+    create_program_pda_account(
+        planet_coords_info,
+        payer_info,
+        system_program_info,
+        space,
         &crate::ID,
+        signer_seeds,
     )?;
 
     msg!("create_planet_state: created coords account");
@@ -2946,9 +3008,13 @@ pub(crate) fn resolve_transport_empty_slot(
         expected_coords,
         GameStateError::InvalidDestination
     );
+    require_keys_eq!(
+        *destination_coords_info.owner,
+        anchor_lang::system_program::ID,
+        GameStateError::InvalidDestination
+    );
     require!(
-        destination_coords_info.lamports() == 0
-            && destination_coords_info.try_borrow_data()?.is_empty(),
+        destination_coords_info.try_borrow_data()?.is_empty(),
         GameStateError::InvalidDestination
     );
 
@@ -3310,6 +3376,53 @@ mod tests {
         assert_eq!(source.active_missions, 0);
         assert_eq!(source.small_cargo, 1);
         assert_eq!(source.missions[0].mission_type, 0);
+    }
+
+    #[test]
+    fn prefunded_empty_coordinates_do_not_trap_transport() {
+        let mut source = test_planet();
+        let destination = test_planet();
+        source.missions[0] = transport_mission(&destination);
+        source.active_missions = 1;
+
+        let galaxy_bytes = destination.galaxy.to_le_bytes();
+        let system_bytes = destination.system.to_le_bytes();
+        let position_bytes = [destination.position];
+        let (coords_key, _) = Pubkey::find_program_address(
+            &[
+                b"planet_coords",
+                &galaxy_bytes,
+                &system_bytes,
+                &position_bytes,
+            ],
+            &crate::ID,
+        );
+        let mut lamports = 1;
+        let mut data = Vec::new();
+        let owner = anchor_lang::system_program::ID;
+        let coords_info = AccountInfo::new(
+            &coords_key,
+            false,
+            false,
+            &mut lamports,
+            data.as_mut_slice(),
+            &owner,
+            false,
+            0,
+        );
+
+        resolve_transport_empty_slot(
+            &mut source,
+            0,
+            20,
+            Some(&coords_info),
+            &crate::ID,
+        )
+        .unwrap();
+
+        assert!(source.missions[0].applied);
+        assert_eq!(source.missions[0].return_ts, 30);
+        assert_eq!(source.active_missions, 1);
     }
 
     #[test]
