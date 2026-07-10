@@ -98,6 +98,53 @@ pub fn initialize_player(
     Ok(())
 }
 
+/// Wallet-only: add vault authorization for a profile created by marketplace purchase.
+pub fn initialize_vault_for_existing_player(
+    ctx: Context<InitializeVaultForExistingPlayer>,
+    vault: Pubkey,
+    expires_at: i64,
+    backup_version: u8,
+    backup_ciphertext: Vec<u8>,
+    backup_iv: [u8; 12],
+    backup_salt: [u8; 16],
+    backup_kdf_salt: [u8; 16],
+) -> Result<()> {
+    require!(!backup_ciphertext.is_empty(), GameStateError::InvalidArgs);
+    require!(
+        backup_ciphertext.len() <= 512,
+        GameStateError::BackupTooLarge
+    );
+
+    let now = Clock::get()?.unix_timestamp;
+    require!(
+        expires_at == 0 || expires_at > now,
+        GameStateError::InvalidArgs
+    );
+
+    let authority = ctx.accounts.authority.key();
+    ctx.accounts.authorized_vault.set_inner(AuthorizedVault {
+        authority,
+        vault,
+        expires_at,
+        revoked: false,
+        bump: ctx.bumps.authorized_vault,
+    });
+
+    ctx.accounts.vault_backup.set_inner(VaultBackup {
+        authority,
+        vault,
+        version: backup_version,
+        ciphertext: backup_ciphertext,
+        iv: backup_iv,
+        salt: backup_salt,
+        kdf_salt: backup_kdf_salt,
+        updated_at: now,
+        bump: ctx.bumps.vault_backup,
+    });
+
+    Ok(())
+}
+
 /// Wallet-only: rotate vault key and update backup.
 pub fn rotate_vault(
     ctx: Context<RotateVault>,
