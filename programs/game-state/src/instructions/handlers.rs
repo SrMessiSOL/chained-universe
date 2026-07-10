@@ -5801,9 +5801,11 @@ pub fn build_ship_vault(
         }
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
-    require_active_vault(
+    require_active_vault_for_live_planet(
+        ctx.program_id,
         ctx.accounts.vault_signer.key(),
         &ctx.accounts.authorized_vault,
+        ctx.accounts.authorized_vault.key(),
         authority,
     )?;
     let now = chain_now()?;
@@ -5860,9 +5862,11 @@ pub fn build_defense_vault(
         );
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
-    require_active_vault(
+    require_active_vault_for_live_planet(
+        ctx.program_id,
         ctx.accounts.vault_signer.key(),
         &ctx.accounts.authorized_vault,
+        ctx.accounts.authorized_vault.key(),
         authority,
     )?;
     let now = chain_now()?;
@@ -5889,9 +5893,11 @@ pub fn finish_defense_build_vault(ctx: Context<MutatePlanetStateVault>, _now: i6
         );
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
-    require_active_vault(
+    require_active_vault_for_live_planet(
+        ctx.program_id,
         ctx.accounts.vault_signer.key(),
         &ctx.accounts.authorized_vault,
+        ctx.accounts.authorized_vault.key(),
         authority,
     )?;
     let now = chain_now()?;
@@ -5908,9 +5914,11 @@ pub fn launch_fleet_vault(
 ) -> Result<()> {
     let planet_info = ctx.accounts.planet_state.to_account_info();
     let mut planet: PlanetState = read_program_account(&planet_info, ctx.program_id)?;
-    require_active_vault(
+    require_active_vault_for_live_planet(
+        ctx.program_id,
         ctx.accounts.vault_signer.key(),
         &ctx.accounts.authorized_vault,
+        ctx.accounts.authorized_vault.key(),
         planet.authority,
     )?;
     launch_fleet_planet(&mut planet, params)?;
