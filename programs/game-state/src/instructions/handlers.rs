@@ -6415,18 +6415,17 @@ pub fn transfer_planet_from_market<'info>(
         GameStateError::PlanetHasActiveMissions
     );
 
+    require!(!ctx.remaining_accounts.is_empty(), GameStateError::InvalidArgs);
     let new_owner_slot = ctx.accounts.new_player_profile.planet_count;
-    if let Some(buyer_index_info) = ctx.remaining_accounts.first() {
-        create_or_update_planet_owner_index(
-            buyer_index_info,
-            &ctx.accounts.new_authority.to_account_info(),
-            &ctx.accounts.system_program.to_account_info(),
-            new_authority,
-            new_owner_slot,
-            planet_key,
-            ctx.program_id,
-        )?;
-    }
+    create_or_update_planet_owner_index(
+        &ctx.remaining_accounts[0],
+        &ctx.accounts.new_authority.to_account_info(),
+        &ctx.accounts.system_program.to_account_info(),
+        new_authority,
+        new_owner_slot,
+        planet_key,
+        ctx.program_id,
+    )?;
     deactivate_planet_owner_index_if_present(
         ctx.remaining_accounts.get(1),
         seller,
