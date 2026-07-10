@@ -233,6 +233,7 @@ pub fn initialize_homeworld<'info>(
     ensure_quest_accounts_for_authority_raw(
         &ctx.accounts.quest_state.to_account_info(),
         &ctx.accounts.quest_progress.to_account_info(),
+        &ctx.accounts.quest_reward_targets.to_account_info(),
         &ctx.accounts.vault_signer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
         authority,
@@ -424,6 +425,7 @@ pub fn initialize_colony<'info>(
     ensure_quest_accounts_for_authority_raw(
         &ctx.accounts.quest_state.to_account_info(),
         &ctx.accounts.quest_progress.to_account_info(),
+        &ctx.accounts.quest_reward_targets.to_account_info(),
         &ctx.accounts.vault_signer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
         authority,
@@ -657,6 +659,7 @@ pub fn initialize_quest_state(ctx: Context<InitializeQuestState>) -> Result<()> 
 fn ensure_quest_accounts_for_authority_raw<'info>(
     quest_state_info: &AccountInfo<'info>,
     quest_progress_info: &AccountInfo<'info>,
+    quest_reward_targets_info: &AccountInfo<'info>,
     payer_info: &AccountInfo<'info>,
     system_program_info: &AccountInfo<'info>,
     authority: Pubkey,
@@ -768,6 +771,45 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
             read_program_account(quest_progress_info, program_id)?;
         require_keys_eq!(
             quest_progress.authority,
+            authority,
+            GameStateError::Unauthorized
+        );
+    }
+
+    let (expected_quest_reward_targets, quest_reward_targets_bump) =
+        Pubkey::find_program_address(&[b"quest_reward_targets", authority.as_ref()], program_id);
+    require_keys_eq!(
+        quest_reward_targets_info.key(),
+        expected_quest_reward_targets,
+        GameStateError::Unauthorized
+    );
+    if quest_reward_targets_info.owner == &anchor_lang::system_program::ID {
+        let rent = Rent::get()?.minimum_balance(QUEST_REWARD_TARGET_STATE_SPACE);
+        anchor_lang::system_program::create_account(
+            CpiContext::new_with_signer(
+                system_program_info.clone(),
+                anchor_lang::system_program::CreateAccount {
+                    from: payer_info.clone(),
+                    to: quest_reward_targets_info.clone(),
+                },
+                &[&[
+                    b"quest_reward_targets",
+                    authority.as_ref(),
+                    &[quest_reward_targets_bump],
+                ]],
+            ),
+            rent,
+            QUEST_REWARD_TARGET_STATE_SPACE as u64,
+            program_id,
+        )?;
+        let mut quest_reward_targets = empty_quest_reward_targets(authority, now);
+        quest_reward_targets.bump = quest_reward_targets_bump;
+        write_program_account(quest_reward_targets_info, &quest_reward_targets)?;
+    } else {
+        let quest_reward_targets: QuestRewardTargetState =
+            read_program_account(quest_reward_targets_info, program_id)?;
+        require_keys_eq!(
+            quest_reward_targets.authority,
             authority,
             GameStateError::Unauthorized
         );

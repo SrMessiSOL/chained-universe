@@ -203,6 +203,9 @@ pub struct InitializePlanetVault<'info> {
     /// CHECK: PDA, owner, and contents are validated/initialized manually.
     #[account(mut)]
     pub quest_progress: UncheckedAccount<'info>,
+    /// CHECK: PDA, owner, and contents are validated/initialized manually.
+    #[account(mut)]
+    pub quest_reward_targets: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -243,6 +246,9 @@ pub struct InitializeColonyVault<'info> {
     /// CHECK: PDA, owner, and contents are validated/initialized manually.
     #[account(mut)]
     pub quest_progress: UncheckedAccount<'info>,
+    /// CHECK: PDA, owner, and contents are validated/initialized manually.
+    #[account(mut)]
+    pub quest_reward_targets: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
