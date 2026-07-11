@@ -4599,11 +4599,11 @@ fn alliance_research_grid_xp_bonus_bps(treasury: &AllianceTreasuryState) -> u64 
 }
 
 fn alliance_trade_cost_discount_bps(treasury: &AllianceTreasuryState) -> u64 {
-    treasury.trade_network as u64 * 300
+    treasury.trade_network as u64 * ALLIANCE_TRADE_DISCOUNT_BPS_PER_LEVEL
 }
 
 fn alliance_defense_deuterium_discount_bps(treasury: &AllianceTreasuryState) -> u64 {
-    treasury.defense_coordination as u64 * 400
+    treasury.defense_coordination as u64 * ALLIANCE_DEFENSE_DISCOUNT_BPS_PER_LEVEL
 }
 
 fn apply_alliance_upgrade_discounts(
@@ -6727,6 +6727,17 @@ mod tests {
         assert_eq!(valid.deuterium, 3);
         assert_eq!(valid.antimatter, 4);
         assert_eq!(valid.total_antimatter_deposited, 4);
+    }
+
+    #[test]
+    fn maximum_alliance_discounts_preserve_resource_sinks() {
+        let mut treasury = empty_alliance_treasury();
+        treasury.trade_network = ALLIANCE_BUILDING_MAX_LEVEL;
+        treasury.defense_coordination = ALLIANCE_BUILDING_MAX_LEVEL;
+
+        assert_eq!(alliance_trade_cost_discount_bps(&treasury), 2_500);
+        assert_eq!(alliance_defense_deuterium_discount_bps(&treasury), 3_750);
+        assert_eq!(apply_alliance_upgrade_discounts(100, 100, 100, 100, &treasury), (75, 75, 63, 75));
     }
 
     #[test]
