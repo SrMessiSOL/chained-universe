@@ -1696,6 +1696,14 @@ pub(crate) fn accelerate_defense_build_with_antimatter_inner<'info>(
     Ok(amount)
 }
 
+fn require_distinct_mission_coordinates(
+    source: (u16, u16, u8),
+    target: (u16, u16, u8),
+) -> Result<()> {
+    require!(source != target, GameStateError::InvalidDestination);
+    Ok(())
+}
+
 pub(crate) fn launch_fleet_planet(
     planet: &mut PlanetState,
     params: LaunchFleetParams,
@@ -1705,6 +1713,14 @@ pub(crate) fn launch_fleet_planet(
         params.target_galaxy,
         params.target_system,
         params.target_position,
+    )?;
+    require_distinct_mission_coordinates(
+        (planet.galaxy, planet.system, planet.position),
+        (
+            params.target_galaxy,
+            params.target_system,
+            params.target_position,
+        ),
     )?;
     require!(
         params.mission_type == MISSION_ATTACK
@@ -3110,6 +3126,12 @@ pub(crate) fn resolve_transport_empty_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fleet_launch_rejects_source_coordinates_as_target() {
+        assert!(require_distinct_mission_coordinates((1, 20, 3), (1, 20, 3)).is_err());
+        assert!(require_distinct_mission_coordinates((1, 20, 3), (1, 20, 4)).is_ok());
+    }
 
     #[test]
     fn checked_launch_sums_reject_overflow() {

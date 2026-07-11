@@ -6016,6 +6016,11 @@ pub fn transfer_resources_from_market(
 pub fn resolve_transport(ctx: Context<ResolveTransport>, slot: u8, _now: i64) -> Result<()> {
     msg!("resolve_transport: entered");
     msg!("resolve_transport: slot={}", slot);
+    require_keys_neq!(
+        ctx.accounts.source_planet.key(),
+        ctx.accounts.destination_planet.key(),
+        GameStateError::InvalidDestination
+    );
     let now = chain_now()?;
     let slot_idx = slot as usize;
     require!(slot_idx < MAX_MISSIONS, GameStateError::InvalidMissionSlot);
@@ -6048,6 +6053,11 @@ pub fn resolve_transport_vault(
 ) -> Result<()> {
     msg!("resolve_transport_vault: entered");
     msg!("resolve_transport_vault: slot={}", slot);
+    require_keys_neq!(
+        ctx.accounts.source_planet.key(),
+        ctx.accounts.destination_planet.key(),
+        GameStateError::InvalidDestination
+    );
     require_active_vault(
         ctx.accounts.vault_signer.key(),
         &ctx.accounts.authorized_vault,
