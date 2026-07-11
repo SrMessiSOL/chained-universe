@@ -411,7 +411,7 @@ pub(crate) fn launch_fuel_cost(
     bc: u32,
     bm: u32,
     ds: u32,
-    _de: u32,
+    de: u32,
     sc: u32,
     lc: u32,
     rec: u32,
@@ -419,7 +419,7 @@ pub(crate) fn launch_fuel_cost(
     col: u32,
     speed_factor: u8,
 ) -> u64 {
-    (sc as u64 * 10
+    let fuel_units = sc as u64 * 10
         + lc as u64 * 50
         + lf as u64 * 20
         + hf as u64 * 75
@@ -428,11 +428,22 @@ pub(crate) fn launch_fuel_cost(
         + bc as u64 * 250
         + bm as u64 * 1_000
         + ds as u64 * 1_000
+        + de as u64
         + rec as u64 * 300
         + ep as u64
-        + col as u64 * 1_000)
-        * (speed_factor as u64).pow(2)
-        / 10_000
+        + col as u64 * 1_000;
+    let scaled = fuel_units
+        .saturating_mul((speed_factor as u64).pow(2))
+        / 10_000;
+    if fuel_units == 0 { 0 } else { scaled.max(1) }
+}
+
+fn return_fuel_reserve(mission_type: u8, one_way_fuel: u64) -> u64 {
+    if mission_type == MISSION_COLONIZE {
+        0
+    } else {
+        one_way_fuel
+    }
 }
 
 pub(crate) fn mine_rate(level: u8, base: u64) -> u64 {
@@ -1898,7 +1909,9 @@ pub(crate) fn launch_fleet_planet(
         speed_factor,
     );
 
-    let deuterium_needed = checked_sum_u64(&[params.cargo_deuterium, launch_fuel])?;
+    let return_fuel = return_fuel_reserve(params.mission_type, launch_fuel);
+    let deuterium_needed =
+        checked_sum_u64(&[params.cargo_deuterium, launch_fuel, return_fuel])?;
     require!(planet.deuterium >= deuterium_needed, GameStateError::InsufficientDeuterium);
 
     planet.metal -= params.cargo_metal;
@@ -1921,7 +1934,9 @@ pub(crate) fn launch_fleet_planet(
 
     let arrive_ts = now.saturating_add(flight_seconds);
 
-    let return_ts = 0;
+    // Negative until arrival marks missions whose return fuel was reserved at launch.
+    // Legacy in-flight missions use zero and retain the old arrival-time charge.
+    let return_ts = if return_fuel > 0 { -1 } else { 0 };
 
     planet.set_mission(
         slot,
@@ -2780,11 +2795,13 @@ pub(crate) fn resolve_attack_planets(
         attacker_survivors[12],
         mission.speed_factor,
     );
-    require!(
-        source.deuterium >= return_fuel,
-        GameStateError::InsufficientDeuterium
-    );
-    source.deuterium = source.deuterium.saturating_sub(return_fuel);
+    if mission.return_ts >= 0 {
+        require!(
+            source.deuterium >= return_fuel,
+            GameStateError::InsufficientDeuterium
+        );
+        source.deuterium = source.deuterium.saturating_sub(return_fuel);
+    }
 
     let mut cargo_metal = 0u64;
     let mut cargo_crystal = 0u64;
@@ -2946,12 +2963,13 @@ pub(crate) fn resolve_transport_planets(
             mission.speed_factor,
         );
 
-        require!(
-            source.deuterium >= return_fuel,
-            GameStateError::InsufficientDeuterium
-        );
-
-        source.deuterium -= return_fuel;
+        if mission.return_ts >= 0 {
+            require!(
+                source.deuterium >= return_fuel,
+                GameStateError::InsufficientDeuterium
+            );
+            source.deuterium -= return_fuel;
+        }
 
         let return_flight_seconds = mission.arrive_ts.saturating_sub(mission.depart_ts).max(1);
 
@@ -3040,11 +3058,13 @@ pub(crate) fn resolve_transport_empty_slot(
             mission.speed_factor,
         );
 
-        require!(
-            source.deuterium >= return_fuel,
-            GameStateError::InsufficientDeuterium
-        );
-        source.deuterium -= return_fuel;
+        if mission.return_ts >= 0 {
+            require!(
+                source.deuterium >= return_fuel,
+                GameStateError::InsufficientDeuterium
+            );
+            source.deuterium -= return_fuel;
+        }
 
         let return_flight_seconds = mission.arrive_ts.saturating_sub(mission.depart_ts).max(1);
 
@@ -3270,6 +3290,21 @@ mod tests {
 
         assert!(mixed_fleet_speed < fast_fleet_speed);
         assert!(mixed_time > fast_time);
+    }
+
+    #[test]
+    fn every_nonempty_fleet_pays_fuel_including_deathstars() {
+        assert_eq!(launch_fuel_cost(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 100), 1);
+        assert_eq!(launch_fuel_cost(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 10), 1);
+        assert_eq!(launch_fuel_cost(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100), 0);
+    }
+
+    #[test]
+    fn round_trip_missions_reserve_return_fuel_at_launch() {
+        assert_eq!(return_fuel_reserve(MISSION_ATTACK, 25), 25);
+        assert_eq!(return_fuel_reserve(MISSION_TRANSPORT, 25), 25);
+        assert_eq!(return_fuel_reserve(MISSION_ESPIONAGE, 25), 25);
+        assert_eq!(return_fuel_reserve(MISSION_COLONIZE, 25), 0);
     }
 
     #[test]
