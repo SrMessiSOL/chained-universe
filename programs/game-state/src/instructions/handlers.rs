@@ -2096,6 +2096,16 @@ const PLANET_DEFENSE_BUILD_ITEM_OFFSET: usize = PLANET_SHIP_BUILD_FINISH_TS_OFFS
 const PLANET_DEFENSE_BUILD_QTY_OFFSET: usize = PLANET_DEFENSE_BUILD_ITEM_OFFSET + 1;
 const PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET: usize = PLANET_DEFENSE_BUILD_QTY_OFFSET + 4;
 
+fn require_planet_state_data(data: &[u8]) -> Result<()> {
+    let discriminator = <PlanetState as anchor_lang::Discriminator>::DISCRIMINATOR;
+    require!(
+        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8
+            && data[..8] == discriminator,
+        GameStateError::InvalidArgs
+    );
+    Ok(())
+}
+
 fn read_planet_deposit_fields(
     account_info: &AccountInfo,
     program_id: &Pubkey,
@@ -2106,10 +2116,7 @@ fn read_planet_deposit_fields(
         GameStateError::Unauthorized
     );
     let data = account_info.try_borrow_data()?;
-    require!(
-        data.len() >= PLANET_SHIP_BUILD_FINISH_TS_OFFSET + 8,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
     Ok(PlanetDepositFields {
         authority: read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET),
         metal: read_u64_at(&data, PLANET_METAL_OFFSET),
@@ -2132,10 +2139,7 @@ fn write_planet_deposit_fields(
     planet: &PlanetDepositFields,
 ) -> Result<()> {
     let mut data = account_info.try_borrow_mut_data()?;
-    require!(
-        data.len() >= PLANET_SHIP_BUILD_FINISH_TS_OFFSET + 8,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
     write_u64_at(&mut data, PLANET_METAL_OFFSET, planet.metal);
     write_u64_at(&mut data, PLANET_CRYSTAL_OFFSET, planet.crystal);
     write_u64_at(&mut data, PLANET_DEUTERIUM_OFFSET, planet.deuterium);
@@ -2153,10 +2157,7 @@ fn read_planet_quest_fields(
 ) -> Result<PlanetQuestFields> {
     let deposit = read_planet_deposit_fields(account_info, program_id)?;
     let data = account_info.try_borrow_data()?;
-    require!(
-        data.len() >= PLANET_LARGE_SHIELD_DOME_OFFSET + 4,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
     Ok(PlanetQuestFields {
         deposit,
         metal_mine: read_u8_at(&data, PLANET_METAL_MINE_OFFSET),
@@ -2212,10 +2213,7 @@ fn read_planet_build_fields(
 ) -> Result<PlanetBuildFields> {
     let deposit = read_planet_deposit_fields(account_info, program_id)?;
     let data = account_info.try_borrow_data()?;
-    require!(
-        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
     Ok(PlanetBuildFields {
         deposit,
         temperature: read_i16_at(&data, PLANET_TEMPERATURE_OFFSET),
@@ -2276,10 +2274,7 @@ fn read_planet_build_fields(
 fn write_planet_build_fields(account_info: &AccountInfo, planet: &PlanetBuildFields) -> Result<()> {
     write_planet_deposit_fields(account_info, &planet.deposit)?;
     let mut data = account_info.try_borrow_mut_data()?;
-    require!(
-        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
     write_u16_at(&mut data, PLANET_USED_FIELDS_OFFSET, planet.used_fields);
     write_u8_at(&mut data, PLANET_METAL_MINE_OFFSET, planet.metal_mine);
     write_u8_at(&mut data, PLANET_CRYSTAL_MINE_OFFSET, planet.crystal_mine);
@@ -2945,7 +2940,7 @@ fn start_ship_build_bytes(
     }
 
     let mut data = account_info.try_borrow_mut_data()?;
-    if data.len() < PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8 {
+    if require_planet_state_data(&data).is_err() {
         return raw_game_error(GameStateError::InvalidArgs);
     }
 
@@ -3122,10 +3117,7 @@ fn start_defense_build_bytes(
     require!(now >= 0, GameStateError::InvalidTimestamp);
 
     let mut data = account_info.try_borrow_mut_data()?;
-    require!(
-        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
 
     let last_update_ts = read_i64_at(&data, PLANET_LAST_UPDATE_TS_OFFSET);
     require!(last_update_ts <= now, GameStateError::InvalidTimestamp);
@@ -3267,10 +3259,7 @@ fn defense_count_offset(defense_type: u8) -> Result<usize> {
 fn finish_defense_build_bytes(account_info: &AccountInfo, now: i64) -> Result<()> {
     require!(now >= 0, GameStateError::InvalidTimestamp);
     let mut data = account_info.try_borrow_mut_data()?;
-    require!(
-        data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
-        GameStateError::InvalidArgs
-    );
+    require_planet_state_data(&data)?;
 
     let defense_type = read_u8_at(&data, PLANET_DEFENSE_BUILD_ITEM_OFFSET);
     let quantity = read_u32_at(&data, PLANET_DEFENSE_BUILD_QTY_OFFSET);
@@ -5777,7 +5766,7 @@ pub fn build_ship_vault(
             return raw_game_error(GameStateError::Unauthorized);
         }
         let data = planet_info.try_borrow_data()?;
-        if data.len() < PLANET_SHIP_BUILD_FINISH_TS_OFFSET + 8 {
+        if require_planet_state_data(&data).is_err() {
             return raw_game_error(GameStateError::InvalidArgs);
         }
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
@@ -5837,10 +5826,7 @@ pub fn build_defense_vault(
             GameStateError::Unauthorized
         );
         let data = planet_info.try_borrow_data()?;
-        require!(
-            data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
-            GameStateError::InvalidArgs
-        );
+        require_planet_state_data(&data)?;
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
     require_active_vault_for_live_planet(
@@ -5868,10 +5854,7 @@ pub fn finish_defense_build_vault(ctx: Context<MutatePlanetStateVault>, _now: i6
             GameStateError::Unauthorized
         );
         let data = planet_info.try_borrow_data()?;
-        require!(
-            data.len() >= PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8,
-            GameStateError::InvalidArgs
-        );
+        require_planet_state_data(&data)?;
         read_pubkey_at(&data, PLANET_AUTHORITY_OFFSET)
     };
     require_active_vault_for_live_planet(
@@ -6690,6 +6673,21 @@ mod tests {
         assert!(require_allocated_owner_index_slot(0, 1).is_ok());
         assert!(require_allocated_owner_index_slot(1, 1).is_err());
         assert!(require_allocated_owner_index_slot(u32::MAX, 1).is_err());
+    }
+
+    #[test]
+    fn raw_planet_paths_require_size_and_discriminator() {
+        let minimum_len = PLANET_DEFENSE_BUILD_FINISH_TS_OFFSET + 8;
+        let mut valid = vec![0u8; minimum_len];
+        valid[..8].copy_from_slice(
+            &<PlanetState as anchor_lang::Discriminator>::DISCRIMINATOR,
+        );
+
+        assert!(require_planet_state_data(&valid).is_ok());
+        assert!(require_planet_state_data(&valid[..minimum_len - 1]).is_err());
+
+        valid[0] ^= 0xff;
+        assert!(require_planet_state_data(&valid).is_err());
     }
 
     #[test]
