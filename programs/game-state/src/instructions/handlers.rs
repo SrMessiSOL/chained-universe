@@ -2701,7 +2701,7 @@ fn solar_satellite_energy_live(temperature: i16) -> u64 {
 fn start_build_live(planet: &mut PlanetBuildFields, building_idx: u8, now: i64) -> Result<()> {
     settle_planet_deposit_fields(&mut planet.deposit, now)?;
     let current = building_level_live(planet, building_idx);
-    let next = current.saturating_add(1);
+    let next = current.checked_add(1).ok_or(GameStateError::InvalidArgs)?;
     let (cm, cc, cd) = upgrade_cost(building_idx, next as u64);
 
     require!(
@@ -2792,7 +2792,7 @@ fn start_research_live(planet: &mut PlanetBuildFields, tech_idx: u8, now: i64) -
     enforce_research_requirements_live(tech_idx, planet)?;
 
     let current = research_level_live(planet, tech_idx);
-    let next = current.saturating_add(1);
+    let next = current.checked_add(1).ok_or(GameStateError::InvalidArgs)?;
     let (cm, cc, cd) = research_cost_for_level(tech_idx, current);
 
     require!(
