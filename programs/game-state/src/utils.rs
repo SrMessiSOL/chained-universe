@@ -49,7 +49,7 @@ fn checked_sum_u64(values: &[u64]) -> Result<u64> {
 pub(crate) fn pow15(n: u64) -> u64 {
     let mut r: u64 = 1_000;
     for _ in 0..n {
-        r = r * 3 / 2;
+        r = r.saturating_mul(3) / 2;
     }
     r
 }
@@ -77,16 +77,20 @@ pub(crate) fn upgrade_cost(idx: u8, level: u64) -> (u64, u64, u64) {
     let (bm, bc, bd) = base_cost(idx);
     let mult = pow15(level.saturating_sub(1));
     (
-        (bm as u64 * mult) / 1_000,
-        (bc as u64 * mult) / 1_000,
-        (bd as u64 * mult) / 1_000,
+        (bm as u64).saturating_mul(mult) / 1_000,
+        (bc as u64).saturating_mul(mult) / 1_000,
+        (bd as u64).saturating_mul(mult) / 1_000,
     )
 }
 
 pub(crate) fn build_seconds(idx: u8, level: u64, robotics: u64) -> i64 {
     let (bm, bc, _) = base_cost(idx);
-    let total = ((bm as u64 + bc as u64) * pow15(level.saturating_sub(1))) / 1_000;
-    (total / (5u64 * (1 + robotics)).max(1)).max(1) as i64
+    let total = (bm as u64)
+        .saturating_add(bc as u64)
+        .saturating_mul(pow15(level.saturating_sub(1)))
+        / 1_000;
+    let divisor = 5u64.saturating_mul(1u64.saturating_add(robotics)).max(1);
+    i64::try_from((total / divisor).max(1)).unwrap_or(i64::MAX)
 }
 
 pub(crate) fn research_base_cost(idx: u8) -> (u64, u64, u64) {
@@ -146,7 +150,7 @@ pub(crate) fn ship_build_seconds(ship_type: u8, quantity: u32, shipyard: u8, nan
         .saturating_mul(quantity as u64);
 
     let speed = (shipyard.max(1) as u64)
-        .saturating_mul(2u64.pow(nanite as u32))
+        .saturating_mul(pow2(nanite))
         .max(1);
 
     total
@@ -185,7 +189,7 @@ pub(crate) fn defense_build_seconds(
         .saturating_add(d)
         .saturating_mul(quantity as u64);
     let speed = (shipyard.max(1) as u64)
-        .saturating_mul(2u64.pow(nanite as u32))
+        .saturating_mul(pow2(nanite))
         .max(1);
     total
         .saturating_mul(MIN_BUILD_SECONDS)
@@ -450,14 +454,31 @@ pub(crate) fn mine_rate(level: u8, base: u64) -> u64 {
     if level == 0 {
         return 0;
     }
-    base * (level as u64) * 11u64.pow(level as u32) / 10u64.pow(level as u32)
+    let level = level as u32;
+    if let (Some(growth), Some(divisor)) = (11u64.checked_pow(level), 10u64.checked_pow(level)) {
+        if let Some(numerator) = base
+            .checked_mul(level as u64)
+            .and_then(|value| value.checked_mul(growth))
+        {
+            return numerator / divisor;
+        }
+    }
+
+    let mut rate = (base as u128).saturating_mul(level as u128);
+    for _ in 0..level {
+        rate = rate.saturating_mul(11) / 10;
+        if rate > u64::MAX as u128 {
+            return u64::MAX;
+        }
+    }
+    rate as u64
 }
 
 pub(crate) fn store_cap(level: u8) -> u64 {
     if level == 0 {
         BASE_STORAGE_CAP
     } else {
-        BASE_STORAGE_CAP * 2u64.pow(level as u32)
+        BASE_STORAGE_CAP.saturating_mul(pow2(level))
     }
 }
 
@@ -1004,7 +1025,7 @@ pub(crate) fn start_build_planet(
 ) -> Result<()> {
     settle_resources(planet, now)?;
     let current = planet.building_level(building_idx);
-    let next = current.saturating_add(1);
+    let next = current.checked_add(1).ok_or(GameStateError::InvalidArgs)?;
     let (cm, cc, cd) = upgrade_cost(building_idx, next as u64);
 
     require!(
@@ -1050,7 +1071,7 @@ pub(crate) fn start_build_planet(
     let dur = build_seconds(building_idx, next as u64, planet.robotics_factory as u64);
     planet.build_queue_item = building_idx;
     planet.build_queue_target = next;
-    planet.build_finish_ts = now + dur;
+    planet.build_finish_ts = now.saturating_add(dur);
     planet.used_fields = planet.used_fields.saturating_add(1);
     Ok(())
 }
@@ -1085,7 +1106,7 @@ pub(crate) fn start_research_planet(
     enforce_research_requirements(tech_idx, planet)?;
 
     let current = planet.research_level(tech_idx);
-    let next = current.saturating_add(1);
+    let next = current.checked_add(1).ok_or(GameStateError::InvalidArgs)?;
     let (cm, cc, cd) = research_cost_for_level(tech_idx, current);
 
     require!(planet.metal >= cm, GameStateError::InsufficientMetal);
@@ -3096,6 +3117,16 @@ mod tests {
         assert!(checked_sum_u64(&[u64::MAX, 1]).is_err());
         assert_eq!(checked_sum_u32(&[1, 2, 3]).unwrap(), 6);
         assert_eq!(checked_sum_u64(&[1, 2, 3]).unwrap(), 6);
+    }
+
+    #[test]
+    fn economic_growth_helpers_saturate_instead_of_wrapping() {
+        assert_eq!(pow15(255), u64::MAX / 2);
+        assert!(mine_rate(u8::MAX, 30) > mine_rate(18, 30));
+        assert_ne!(mine_rate(u8::MAX, 30), 0);
+        assert_eq!(store_cap(u8::MAX), u64::MAX);
+        assert_eq!(ship_build_seconds(0, 1, 1, u8::MAX), 300);
+        assert_eq!(defense_build_seconds(0, 1, 1, u8::MAX), 300);
     }
 
     fn test_planet() -> PlanetState {
