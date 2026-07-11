@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use crate::constants::{
     ANTIMATTER_SCALE, GAME_STATE_PROGRAM_ID, LOCK_RESOURCES_FOR_MARKET_DISCRIMINATOR,
-    MARKET_FEE_BPS, MAX_OFFERS_PER_WALLET, MIN_RESOURCE_AMOUNT, OFFER_ACCOUNT_SPACE,
+    MAX_OFFERS_PER_WALLET, MIN_RESOURCE_AMOUNT, OFFER_ACCOUNT_SPACE,
     PLANET_MARKET_OBLIGATION_ACCOUNT_SPACE, RELEASE_RESOURCES_FROM_MARKET_DISCRIMINATOR,
     TRANSFER_RESOURCES_FROM_MARKET_DISCRIMINATOR,
 };
@@ -13,7 +13,7 @@ use crate::state::{
     MarketConfig, MarketOffer, PlanetListingIndex, PlanetMarketObligation, SellerCounter,
 };
 use crate::types::ResourceType;
-use crate::utils::{build_market_resource_ix, require_protocol_antimatter_treasury};
+use crate::utils::{build_market_resource_ix, market_fee, require_protocol_antimatter_treasury};
 
 fn decrement_market_obligation(
     obligation: &AccountInfo,
@@ -324,11 +324,7 @@ pub fn accept_offer(ctx: Context<AcceptOffer>) -> Result<()> {
     {
         let authority_seeds: &[&[&[u8]]] =
             &[&[b"market_authority", &[ctx.bumps.market_escrow_authority]]];
-        let fee = if MARKET_FEE_BPS > 0 {
-            price.saturating_mul(MARKET_FEE_BPS) / 10_000
-        } else {
-            0
-        };
+        let fee = market_fee(price);
         let seller_receives = price.saturating_sub(fee);
 
         require!(

@@ -3,7 +3,7 @@ use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use crate::constants::{
-    ANTIMATTER_SCALE, GAME_STATE_PROGRAM_ID, MARKET_FEE_BPS, MAX_OFFERS_PER_WALLET,
+    ANTIMATTER_SCALE, GAME_STATE_PROGRAM_ID, MAX_OFFERS_PER_WALLET,
     PLANET_LISTING_ACCOUNT_SPACE, PLANET_LISTING_INDEX_ACCOUNT_SPACE,
     TRANSFER_PLANET_FROM_MARKET_DISCRIMINATOR,
 };
@@ -11,7 +11,7 @@ use crate::error::MarketError;
 use crate::state::{
     MarketConfig, PlanetListing, PlanetListingIndex, PlanetMarketObligation, SellerCounter,
 };
-use crate::utils::require_protocol_antimatter_treasury;
+use crate::utils::{market_fee, require_protocol_antimatter_treasury};
 
 const PLANET_STATE_AUTHORITY_OFFSET: usize = 8;
 const PLANET_STATE_INDEX_OFFSET: usize = 72;
@@ -400,11 +400,7 @@ pub fn buy_planet_listing<'info>(
     let price = ctx.accounts.listing.price_antimatter;
     let authority_seeds: &[&[&[u8]]] =
         &[&[b"market_authority", &[ctx.bumps.market_escrow_authority]]];
-    let fee = if MARKET_FEE_BPS > 0 {
-        price.saturating_mul(MARKET_FEE_BPS) / 10_000
-    } else {
-        0
-    };
+    let fee = market_fee(price);
     let seller_receives = price.saturating_sub(fee);
 
     require!(
