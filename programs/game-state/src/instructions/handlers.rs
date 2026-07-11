@@ -1242,6 +1242,51 @@ pub fn initialize_alliance_treasury_vault(
     Ok(())
 }
 
+fn credit_alliance_treasury(
+    treasury: &mut AllianceTreasuryState,
+    metal: u64,
+    crystal: u64,
+    deuterium: u64,
+    antimatter: u64,
+) -> Result<()> {
+    let next_metal = treasury.metal.checked_add(metal).ok_or(GameStateError::InvalidArgs)?;
+    let next_crystal = treasury.crystal.checked_add(crystal).ok_or(GameStateError::InvalidArgs)?;
+    let next_deuterium = treasury
+        .deuterium
+        .checked_add(deuterium)
+        .ok_or(GameStateError::InvalidArgs)?;
+    let next_antimatter = treasury
+        .antimatter
+        .checked_add(antimatter)
+        .ok_or(GameStateError::InvalidArgs)?;
+    let next_total_metal = treasury
+        .total_metal_deposited
+        .checked_add(metal)
+        .ok_or(GameStateError::InvalidArgs)?;
+    let next_total_crystal = treasury
+        .total_crystal_deposited
+        .checked_add(crystal)
+        .ok_or(GameStateError::InvalidArgs)?;
+    let next_total_deuterium = treasury
+        .total_deuterium_deposited
+        .checked_add(deuterium)
+        .ok_or(GameStateError::InvalidArgs)?;
+    let next_total_antimatter = treasury
+        .total_antimatter_deposited
+        .checked_add(antimatter)
+        .ok_or(GameStateError::InvalidArgs)?;
+
+    treasury.metal = next_metal;
+    treasury.crystal = next_crystal;
+    treasury.deuterium = next_deuterium;
+    treasury.antimatter = next_antimatter;
+    treasury.total_metal_deposited = next_total_metal;
+    treasury.total_crystal_deposited = next_total_crystal;
+    treasury.total_deuterium_deposited = next_total_deuterium;
+    treasury.total_antimatter_deposited = next_total_antimatter;
+    Ok(())
+}
+
 pub fn deposit_alliance_resources(
     ctx: Context<DepositAllianceResources>,
     period: u8,
@@ -1425,22 +1470,7 @@ pub fn deposit_alliance_resources(
     planet_deposit.crystal = planet_deposit.crystal.saturating_sub(crystal);
     planet_deposit.deuterium = planet_deposit.deuterium.saturating_sub(deuterium);
 
-    alliance_treasury.metal = alliance_treasury.metal.saturating_add(metal);
-    alliance_treasury.crystal = alliance_treasury.crystal.saturating_add(crystal);
-    alliance_treasury.deuterium = alliance_treasury.deuterium.saturating_add(deuterium);
-    alliance_treasury.antimatter = alliance_treasury.antimatter.saturating_add(antimatter);
-    alliance_treasury.total_metal_deposited = alliance_treasury
-        .total_metal_deposited
-        .saturating_add(metal);
-    alliance_treasury.total_crystal_deposited = alliance_treasury
-        .total_crystal_deposited
-        .saturating_add(crystal);
-    alliance_treasury.total_deuterium_deposited = alliance_treasury
-        .total_deuterium_deposited
-        .saturating_add(deuterium);
-    alliance_treasury.total_antimatter_deposited = alliance_treasury
-        .total_antimatter_deposited
-        .saturating_add(antimatter);
+    credit_alliance_treasury(&mut alliance_treasury, metal, crystal, deuterium, antimatter)?;
 
     match period {
         1 => membership.daily_claimed_mask |= bit,
@@ -1668,22 +1698,7 @@ pub fn deposit_alliance_resources_vault(
     planet_deposit.crystal = planet_deposit.crystal.saturating_sub(crystal);
     planet_deposit.deuterium = planet_deposit.deuterium.saturating_sub(deuterium);
 
-    alliance_treasury.metal = alliance_treasury.metal.saturating_add(metal);
-    alliance_treasury.crystal = alliance_treasury.crystal.saturating_add(crystal);
-    alliance_treasury.deuterium = alliance_treasury.deuterium.saturating_add(deuterium);
-    alliance_treasury.antimatter = alliance_treasury.antimatter.saturating_add(antimatter);
-    alliance_treasury.total_metal_deposited = alliance_treasury
-        .total_metal_deposited
-        .saturating_add(metal);
-    alliance_treasury.total_crystal_deposited = alliance_treasury
-        .total_crystal_deposited
-        .saturating_add(crystal);
-    alliance_treasury.total_deuterium_deposited = alliance_treasury
-        .total_deuterium_deposited
-        .saturating_add(deuterium);
-    alliance_treasury.total_antimatter_deposited = alliance_treasury
-        .total_antimatter_deposited
-        .saturating_add(antimatter);
+    credit_alliance_treasury(&mut alliance_treasury, metal, crystal, deuterium, antimatter)?;
 
     match period {
         1 => membership.daily_claimed_mask |= bit,
@@ -6675,6 +6690,44 @@ pub fn accelerate_mission_with_antimatter(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn empty_alliance_treasury() -> AllianceTreasuryState {
+        AllianceTreasuryState {
+            alliance: Pubkey::new_unique(),
+            metal: 0,
+            crystal: 0,
+            deuterium: 0,
+            antimatter: 0,
+            logistics_hub: 0,
+            research_grid: 0,
+            defense_coordination: 0,
+            trade_network: 0,
+            total_metal_deposited: 0,
+            total_crystal_deposited: 0,
+            total_deuterium_deposited: 0,
+            total_antimatter_deposited: 0,
+            bump: 0,
+        }
+    }
+
+    #[test]
+    fn alliance_treasury_credit_is_atomic_on_overflow() {
+        let mut treasury = empty_alliance_treasury();
+        treasury.metal = u64::MAX;
+
+        assert!(credit_alliance_treasury(&mut treasury, 1, 2, 3, 4).is_err());
+        assert_eq!(treasury.metal, u64::MAX);
+        assert_eq!(treasury.crystal, 0);
+        assert_eq!(treasury.total_crystal_deposited, 0);
+
+        let mut valid = empty_alliance_treasury();
+        credit_alliance_treasury(&mut valid, 1, 2, 3, 4).unwrap();
+        assert_eq!(valid.metal, 1);
+        assert_eq!(valid.crystal, 2);
+        assert_eq!(valid.deuterium, 3);
+        assert_eq!(valid.antimatter, 4);
+        assert_eq!(valid.total_antimatter_deposited, 4);
+    }
 
     #[test]
     fn direct_planet_transfer_rejects_same_authority() {
