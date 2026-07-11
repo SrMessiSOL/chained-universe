@@ -6320,6 +6320,18 @@ pub fn resolve_colonize_vault(
 /// The planet PDA address does not change — it stays seeded by the old wallet.
 /// The old wallet's wallet-signed fallback path for this planet stops working
 /// (by design — only the new authority owns it).
+fn require_distinct_planet_transfer_authorities(
+    old_authority: Pubkey,
+    new_authority: Pubkey,
+) -> Result<()> {
+    require_keys_neq!(
+        old_authority,
+        new_authority,
+        GameStateError::Unauthorized
+    );
+    Ok(())
+}
+
 pub fn transfer_planet<'info>(
     ctx: Context<'_, '_, '_, 'info, TransferPlanet<'info>>,
 ) -> Result<()> {
@@ -6329,6 +6341,7 @@ pub fn transfer_planet<'info>(
     let old_authority = ctx.accounts.authority.key();
     let new_authority = ctx.accounts.new_authority.key();
 
+    require_distinct_planet_transfer_authorities(old_authority, new_authority)?;
     require!(
         planet.active_missions == 0,
         GameStateError::PlanetHasActiveMissions
@@ -6658,6 +6671,13 @@ pub fn accelerate_mission_with_antimatter(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_planet_transfer_rejects_same_authority() {
+        let authority = Pubkey::new_unique();
+        assert!(require_distinct_planet_transfer_authorities(authority, authority).is_err());
+        assert!(require_distinct_planet_transfer_authorities(authority, Pubkey::new_unique()).is_ok());
+    }
 
     #[test]
     fn rotating_quests_expose_twelve_claimable_slots_per_period() {
