@@ -673,7 +673,7 @@ pub struct ApproveJoinRequest<'info> {
     )]
     pub join_request: Account<'info, AllianceJoinRequest>,
     #[account(
-        init,
+        init_if_needed,
         payer = leader,
         space = ALLIANCE_MEMBERSHIP_SPACE,
         seeds = [b"alliance_membership", applicant.key().as_ref()],
@@ -722,15 +722,14 @@ pub struct ExpelAllianceMember<'info> {
         constraint = leader_membership.role == 2 @ GameStateError::AllianceLeaderRequired
     )]
     pub leader_membership: Account<'info, AllianceMembership>,
-    /// CHECK: target is the member authority and receives closed rent.
+    /// CHECK: target is the member authority used as the membership PDA seed.
     #[account(mut)]
     pub target: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [b"alliance_membership", target.key().as_ref()],
         bump = target_membership.bump,
-        has_one = alliance @ GameStateError::InvalidAllianceMember,
-        close = target
+        has_one = alliance @ GameStateError::InvalidAllianceMember
     )]
     pub target_membership: Account<'info, AllianceMembership>,
 }
@@ -755,7 +754,8 @@ pub struct TransferAllianceLeadership<'info> {
         mut,
         seeds = [b"alliance_membership", new_leader.key().as_ref()],
         bump = new_leader_membership.bump,
-        has_one = alliance @ GameStateError::InvalidAllianceMember
+        has_one = alliance @ GameStateError::InvalidAllianceMember,
+        constraint = new_leader_membership.role == 1 @ GameStateError::InvalidAllianceMember
     )]
     pub new_leader_membership: Account<'info, AllianceMembership>,
 }
@@ -771,8 +771,7 @@ pub struct LeaveAlliance<'info> {
         seeds = [b"alliance_membership", authority.key().as_ref()],
         bump = membership.bump,
         has_one = alliance @ GameStateError::InvalidAllianceMember,
-        has_one = authority @ GameStateError::Unauthorized,
-        close = authority
+        has_one = authority @ GameStateError::Unauthorized
     )]
     pub membership: Account<'info, AllianceMembership>,
 }
@@ -786,7 +785,8 @@ pub struct InitializeAllianceTreasury<'info> {
         seeds = [b"alliance_membership", authority.key().as_ref()],
         bump = membership.bump,
         has_one = authority @ GameStateError::Unauthorized,
-        has_one = alliance @ GameStateError::InvalidAllianceMember
+        has_one = alliance @ GameStateError::InvalidAllianceMember,
+        constraint = membership.role > 0 @ GameStateError::InvalidAllianceMember
     )]
     pub membership: Account<'info, AllianceMembership>,
     #[account(
@@ -816,7 +816,8 @@ pub struct InitializeAllianceTreasuryVault<'info> {
         seeds = [b"alliance_membership", authority.key().as_ref()],
         bump = membership.bump,
         has_one = authority @ GameStateError::Unauthorized,
-        has_one = alliance @ GameStateError::InvalidAllianceMember
+        has_one = alliance @ GameStateError::InvalidAllianceMember,
+        constraint = membership.role > 0 @ GameStateError::InvalidAllianceMember
     )]
     pub membership: Account<'info, AllianceMembership>,
     #[account(
@@ -936,7 +937,8 @@ pub struct AllianceMissionAction<'info> {
         seeds = [b"alliance_membership", authority.key().as_ref()],
         bump = membership.bump,
         has_one = alliance @ GameStateError::InvalidAllianceMember,
-        has_one = authority @ GameStateError::Unauthorized
+        has_one = authority @ GameStateError::Unauthorized,
+        constraint = membership.role > 0 @ GameStateError::InvalidAllianceMember
     )]
     pub membership: Account<'info, AllianceMembership>,
     #[account(has_one = authority @ GameStateError::Unauthorized)]

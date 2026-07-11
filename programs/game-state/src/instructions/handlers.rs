@@ -1102,14 +1102,14 @@ pub fn approve_join_request(ctx: Context<ApproveJoinRequest>) -> Result<()> {
         GameStateError::AllianceFull
     );
     ctx.accounts.alliance.member_count = ctx.accounts.alliance.member_count.saturating_add(1);
-    init_alliance_membership(
+    activate_alliance_membership(
         &mut ctx.accounts.membership,
         ctx.accounts.applicant.key(),
         ctx.accounts.alliance.key(),
         1,
         now,
         ctx.bumps.membership,
-    );
+    )?;
     Ok(())
 }
 
@@ -1123,6 +1123,7 @@ pub fn expel_alliance_member(ctx: Context<ExpelAllianceMember>) -> Result<()> {
         GameStateError::CannotExpelAllianceLeader
     );
     ctx.accounts.alliance.member_count = ctx.accounts.alliance.member_count.saturating_sub(1);
+    ctx.accounts.target_membership.role = 0;
     Ok(())
 }
 
@@ -1143,18 +1144,41 @@ pub fn leave_alliance(ctx: Context<LeaveAlliance>) -> Result<()> {
         GameStateError::AllianceFounderCannotLeave
     );
     ctx.accounts.alliance.member_count = ctx.accounts.alliance.member_count.saturating_sub(1);
+    ctx.accounts.membership.role = 0;
     Ok(())
 }
 
-fn init_alliance_membership(
+fn activate_alliance_membership(
     membership: &mut Account<AllianceMembership>,
     authority: Pubkey,
     alliance: Pubkey,
     role: u8,
     now: i64,
     bump: u8,
-) {
-    membership.set_inner(AllianceMembership {
+) -> Result<()> {
+    activate_alliance_membership_state(membership, authority, alliance, role, now, bump)
+}
+
+fn activate_alliance_membership_state(
+    membership: &mut AllianceMembership,
+    authority: Pubkey,
+    alliance: Pubkey,
+    role: u8,
+    now: i64,
+    bump: u8,
+) -> Result<()> {
+    if membership.authority != Pubkey::default() {
+        require_keys_eq!(membership.authority, authority, GameStateError::Unauthorized);
+        require!(membership.role == 0, GameStateError::InvalidAllianceMember);
+        if membership.alliance == alliance {
+            sync_alliance_periods(membership, now);
+            membership.role = role;
+            membership.joined_at = now;
+            return Ok(());
+        }
+    }
+
+    *membership = AllianceMembership {
         authority,
         alliance,
         role,
@@ -1166,7 +1190,8 @@ fn init_alliance_membership(
         weekly_claimed_mask: 0,
         monthly_claimed_mask: 0,
         bump,
-    });
+    };
+    Ok(())
 }
 
 fn require_protocol_antimatter_treasury(
@@ -1356,6 +1381,7 @@ pub fn deposit_alliance_resources(
         ctx.accounts.alliance.key(),
         GameStateError::InvalidAllianceMember
     );
+    require!(membership.role > 0, GameStateError::InvalidAllianceMember);
     require_keys_eq!(
         alliance_treasury.alliance,
         ctx.accounts.alliance.key(),
@@ -1578,6 +1604,7 @@ pub fn deposit_alliance_resources_vault(
         ctx.accounts.alliance.key(),
         GameStateError::InvalidAllianceMember
     );
+    require!(membership.role > 0, GameStateError::InvalidAllianceMember);
     require_keys_eq!(
         alliance_treasury.alliance,
         ctx.accounts.alliance.key(),
@@ -6708,6 +6735,65 @@ mod tests {
             total_antimatter_deposited: 0,
             bump: 0,
         }
+    }
+
+    fn inactive_membership(authority: Pubkey, alliance: Pubkey) -> AllianceMembership {
+        AllianceMembership {
+            authority,
+            alliance,
+            role: 0,
+            joined_at: 10,
+            daily_epoch: 20,
+            weekly_epoch: 3,
+            monthly_epoch: 1,
+            daily_claimed_mask: 0b101,
+            weekly_claimed_mask: 0b010,
+            monthly_claimed_mask: 0b001,
+            bump: 7,
+        }
+    }
+
+    #[test]
+    fn same_alliance_reactivation_preserves_current_claims() {
+        let authority = Pubkey::new_unique();
+        let alliance = Pubkey::new_unique();
+        let mut membership = inactive_membership(authority, alliance);
+        let now = 20 * 86_400;
+        membership.daily_epoch = daily_epoch(now);
+        membership.weekly_epoch = weekly_epoch(now);
+        membership.monthly_epoch = monthly_epoch(now);
+
+        activate_alliance_membership_state(&mut membership, authority, alliance, 1, now, 7)
+            .unwrap();
+
+        assert_eq!(membership.role, 1);
+        assert_eq!(membership.daily_claimed_mask, 0b101);
+        assert_eq!(membership.weekly_claimed_mask, 0b010);
+        assert_eq!(membership.monthly_claimed_mask, 0b001);
+    }
+
+    #[test]
+    fn different_alliance_activation_resets_claims() {
+        let authority = Pubkey::new_unique();
+        let mut membership = inactive_membership(authority, Pubkey::new_unique());
+        let new_alliance = Pubkey::new_unique();
+        let now = 20 * 86_400;
+
+        activate_alliance_membership_state(
+            &mut membership,
+            authority,
+            new_alliance,
+            1,
+            now,
+            7,
+        )
+        .unwrap();
+
+        assert_eq!(membership.alliance, new_alliance);
+        assert_eq!(membership.role, 1);
+        assert_eq!(membership.daily_claimed_mask, 0);
+        assert_eq!(membership.weekly_claimed_mask, 0);
+        assert_eq!(membership.monthly_claimed_mask, 0);
     }
 
     #[test]
