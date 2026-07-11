@@ -2910,13 +2910,38 @@ pub(crate) fn resolve_transport_planets(
         settle_resources(source, now)?;
         settle_resources(destination, now)?;
 
+        let stations_at_destination =
+            destination.authority == source.authority && destination.shipyard > 0;
+        let unused_return_fuel = if stations_at_destination && mission.return_ts < 0 {
+            launch_fuel_cost(
+                mission.light_fighter,
+                mission.heavy_fighter,
+                mission.cruiser,
+                mission.battleship,
+                mission.battlecruiser,
+                mission.bomber,
+                mission.destroyer,
+                mission.deathstar,
+                mission.small_cargo,
+                mission.large_cargo,
+                mission.recycler,
+                mission.espionage_probe,
+                mission.colony_ship,
+                mission.speed_factor,
+            )
+        } else {
+            0
+        };
         destination.credit_resources(
             mission.cargo_metal,
             mission.cargo_crystal,
-            mission.cargo_deuterium,
+            mission
+                .cargo_deuterium
+                .checked_add(unused_return_fuel)
+                .ok_or(GameStateError::ResourceCapExceeded)?,
         )?;
 
-        if destination.authority == source.authority && destination.shipyard > 0 {
+        if stations_at_destination {
             // Same owner with shipyard: ships can be stationed at destination.
             destination.small_cargo = destination.small_cargo.saturating_add(mission.small_cargo);
             destination.large_cargo = destination.large_cargo.saturating_add(mission.large_cargo);
@@ -3364,6 +3389,8 @@ mod tests {
         source.missions[0] = MissionState {
             small_cargo: 1,
             cargo_metal: 100,
+            return_ts: -1,
+            speed_factor: 100,
             ..transport_mission(&destination)
         };
         source.active_missions = 1;
@@ -3374,6 +3401,7 @@ mod tests {
         assert_eq!(source.missions[0].mission_type, 0);
         assert_eq!(destination.small_cargo, 1);
         assert_eq!(destination.metal, 100);
+        assert_eq!(destination.deuterium, 10);
     }
 
     #[test]
