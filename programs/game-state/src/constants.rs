@@ -4,7 +4,8 @@ use crate::state::{
     AllianceJoinRequest, AllianceMembership, AllianceMetadata, AllianceState,
     AllianceTreasuryState, AuthorizedVault, FaucetClaim, GameConfig, PlanetCoordinates, PlanetState,
     PlanetOwnerIndex, PlayerProfile, PublicPlanetCoordinates, PublicPlanetState, QuestProgressState,
-    QuestRewardTargetState, QuestState, StoreConfig, StorePurchaseState, VaultBackup,
+    QuestRewardTargetState, QuestState, StoreConfig, StorePurchaseState, TutorialQuestRewardTargetState,
+    VaultBackup,
 };
 
 pub const MAX_PLANET_NAME_LEN: usize = 32;
@@ -75,6 +76,8 @@ pub const STORE_PURCHASE_STATE_SPACE: usize = 8 + StorePurchaseState::INIT_SPACE
 pub const QUEST_STATE_SPACE: usize = 8 + QuestState::INIT_SPACE;
 pub const QUEST_PROGRESS_STATE_SPACE: usize = 8 + QuestProgressState::INIT_SPACE;
 pub const QUEST_REWARD_TARGET_STATE_SPACE: usize = 8 + QuestRewardTargetState::INIT_SPACE;
+pub const TUTORIAL_QUEST_REWARD_TARGET_STATE_SPACE: usize =
+    8 + TutorialQuestRewardTargetState::INIT_SPACE;
 pub const ALLIANCE_STATE_SPACE: usize = 8 + AllianceState::INIT_SPACE;
 pub const ALLIANCE_METADATA_SPACE: usize = 8 + AllianceMetadata::INIT_SPACE;
 pub const ALLIANCE_TREASURY_SPACE: usize = 8 + AllianceTreasuryState::INIT_SPACE;

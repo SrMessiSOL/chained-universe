@@ -234,6 +234,15 @@ pub struct QuestRewardTargetState {
 
 #[account]
 #[derive(InitSpace)]
+pub struct TutorialQuestRewardTargetState {
+    pub authority: Pubkey,
+    pub tutorial_quest_planets: [Pubkey; 21],
+    pub last_updated_ts: i64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct PlanetState {
     pub authority: Pubkey,
     pub player: Pubkey,

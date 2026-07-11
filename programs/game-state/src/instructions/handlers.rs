@@ -234,6 +234,7 @@ pub fn initialize_homeworld<'info>(
         &ctx.accounts.quest_state.to_account_info(),
         &ctx.accounts.quest_progress.to_account_info(),
         &ctx.accounts.quest_reward_targets.to_account_info(),
+        &ctx.accounts.tutorial_quest_reward_targets.to_account_info(),
         &ctx.accounts.vault_signer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
         authority,
@@ -431,6 +432,7 @@ pub fn initialize_colony<'info>(
         &ctx.accounts.quest_state.to_account_info(),
         &ctx.accounts.quest_progress.to_account_info(),
         &ctx.accounts.quest_reward_targets.to_account_info(),
+        &ctx.accounts.tutorial_quest_reward_targets.to_account_info(),
         &ctx.accounts.vault_signer.to_account_info(),
         &ctx.accounts.system_program.to_account_info(),
         authority,
@@ -671,6 +673,7 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
     quest_state_info: &AccountInfo<'info>,
     quest_progress_info: &AccountInfo<'info>,
     quest_reward_targets_info: &AccountInfo<'info>,
+    tutorial_quest_reward_targets_info: &AccountInfo<'info>,
     payer_info: &AccountInfo<'info>,
     system_program_info: &AccountInfo<'info>,
     authority: Pubkey,
@@ -808,6 +811,46 @@ fn ensure_quest_accounts_for_authority_raw<'info>(
         );
     }
 
+    let (expected_tutorial_quest_reward_targets, tutorial_quest_reward_targets_bump) =
+        Pubkey::find_program_address(
+            &[b"quest_tutorial_reward_targets", authority.as_ref()],
+            program_id,
+        );
+    require_keys_eq!(
+        tutorial_quest_reward_targets_info.key(),
+        expected_tutorial_quest_reward_targets,
+        GameStateError::Unauthorized
+    );
+    if tutorial_quest_reward_targets_info.owner == &anchor_lang::system_program::ID {
+        create_program_pda_account(
+            tutorial_quest_reward_targets_info,
+            payer_info,
+            system_program_info,
+            TUTORIAL_QUEST_REWARD_TARGET_STATE_SPACE,
+            program_id,
+            &[&[
+                b"quest_tutorial_reward_targets",
+                authority.as_ref(),
+                &[tutorial_quest_reward_targets_bump],
+            ]],
+        )?;
+        let mut tutorial_quest_reward_targets =
+            empty_tutorial_quest_reward_targets(authority, now);
+        tutorial_quest_reward_targets.bump = tutorial_quest_reward_targets_bump;
+        write_program_account(
+            tutorial_quest_reward_targets_info,
+            &tutorial_quest_reward_targets,
+        )?;
+    } else {
+        let tutorial_quest_reward_targets: TutorialQuestRewardTargetState =
+            read_program_account(tutorial_quest_reward_targets_info, program_id)?;
+        require_keys_eq!(
+            tutorial_quest_reward_targets.authority,
+            authority,
+            GameStateError::Unauthorized
+        );
+    }
+
     Ok(())
 }
 
@@ -847,6 +890,12 @@ pub fn initialize_quest_reward_targets(ctx: Context<InitializeQuestRewardTargets
     let mut targets = empty_quest_reward_targets(ctx.accounts.authority.key(), now);
     targets.bump = ctx.bumps.quest_reward_targets;
     ctx.accounts.quest_reward_targets.set_inner(targets);
+    let mut tutorial_targets =
+        empty_tutorial_quest_reward_targets(ctx.accounts.authority.key(), now);
+    tutorial_targets.bump = ctx.bumps.tutorial_quest_reward_targets;
+    ctx.accounts
+        .tutorial_quest_reward_targets
+        .set_inner(tutorial_targets);
     Ok(())
 }
 
@@ -889,11 +938,14 @@ pub fn claim_quest(ctx: Context<QuestAction>, period: u8, quest_id: u8) -> Resul
             ctx.program_id,
         )?
     };
+    let quest_reward_targets_info = ctx.remaining_accounts.first();
+    let tutorial_quest_reward_targets_info = ctx.remaining_accounts.get(1);
     claim_quest_reward(
         &mut ctx.accounts.quest_state,
         &mut ctx.accounts.planet_state,
         &mut quest_progress,
-        ctx.remaining_accounts.first(),
+        quest_reward_targets_info,
+        tutorial_quest_reward_targets_info,
         ctx.program_id,
         period,
         quest_id,
@@ -934,11 +986,14 @@ pub fn claim_quest_vault(ctx: Context<QuestActionVault>, period: u8, quest_id: u
             ctx.program_id,
         )?
     };
+    let quest_reward_targets_info = ctx.remaining_accounts.first();
+    let tutorial_quest_reward_targets_info = ctx.remaining_accounts.get(1);
     claim_quest_reward_live(
         &mut ctx.accounts.quest_state,
         &mut planet,
         &mut quest_progress,
-        ctx.remaining_accounts.first(),
+        quest_reward_targets_info,
+        tutorial_quest_reward_targets_info,
         planet_info.key(),
         ctx.accounts.authority.key(),
         ctx.program_id,
@@ -3568,6 +3623,18 @@ fn empty_quest_reward_targets(authority: Pubkey, now: i64) -> QuestRewardTargetS
     }
 }
 
+fn empty_tutorial_quest_reward_targets(
+    authority: Pubkey,
+    now: i64,
+) -> TutorialQuestRewardTargetState {
+    TutorialQuestRewardTargetState {
+        authority,
+        tutorial_quest_planets: [Pubkey::default(); 21],
+        last_updated_ts: now,
+        bump: 0,
+    }
+}
+
 fn sync_quest_reward_target_periods(targets: &mut QuestRewardTargetState, now: i64) {
     let daily_epoch = daily_epoch(now);
     let weekly_epoch = weekly_epoch(now);
@@ -3619,6 +3686,25 @@ fn validate_quest_reward_targets_pda(
     Ok(targets)
 }
 
+fn validate_tutorial_quest_reward_targets_pda(
+    account_info: &AccountInfo,
+    authority: Pubkey,
+    program_id: &Pubkey,
+) -> Result<TutorialQuestRewardTargetState> {
+    let (expected, _) = Pubkey::find_program_address(
+        &[b"quest_tutorial_reward_targets", authority.as_ref()],
+        program_id,
+    );
+    require_keys_eq!(account_info.key(), expected, GameStateError::Unauthorized);
+    require!(
+        account_info.data_len() >= TUTORIAL_QUEST_REWARD_TARGET_STATE_SPACE,
+        GameStateError::InvalidArgs
+    );
+    let targets: TutorialQuestRewardTargetState = read_program_account(account_info, program_id)?;
+    require_keys_eq!(targets.authority, authority, GameStateError::Unauthorized);
+    Ok(targets)
+}
+
 fn quest_target_slot_mut<'a>(
     targets: &'a mut QuestRewardTargetState,
     period: u8,
@@ -3645,6 +3731,39 @@ fn quest_target_slot_mut<'a>(
         (3, QuestProgressMetric::SpyMissionsResolved) => Ok(&mut targets.monthly_spy_planet),
         _ => err!(GameStateError::InvalidQuest),
     }
+}
+
+fn tutorial_quest_target_slot_mut<'a>(
+    targets: &'a mut TutorialQuestRewardTargetState,
+    quest_id: u8,
+) -> Result<&'a mut Pubkey> {
+    match quest_id {
+        0..=20 => Ok(&mut targets.tutorial_quest_planets[quest_id as usize]),
+        _ => err!(GameStateError::InvalidQuest),
+    }
+}
+
+fn validate_or_lock_tutorial_quest_reward_target(
+    tutorial_targets_info: Option<&AccountInfo>,
+    authority: Pubkey,
+    claiming_planet: Pubkey,
+    program_id: Pubkey,
+    now: i64,
+    quest_id: u8,
+) -> Result<()> {
+    let Some(info) = tutorial_targets_info else {
+        return err!(GameStateError::InvalidArgs);
+    };
+    let mut targets = validate_tutorial_quest_reward_targets_pda(info, authority, &program_id)?;
+    let slot = tutorial_quest_target_slot_mut(&mut targets, quest_id)?;
+    if *slot == Pubkey::default() {
+        *slot = claiming_planet;
+        targets.last_updated_ts = now;
+        write_program_account(info, &targets)?;
+        return Ok(());
+    }
+    require_keys_eq!(*slot, claiming_planet, GameStateError::WrongQuestRewardPlanet);
+    Ok(())
 }
 
 fn recurring_requirement_metric(req: QuestRequirement) -> QuestProgressMetric {
@@ -3850,6 +3969,7 @@ fn claim_quest_reward(
     planet: &mut Account<PlanetState>,
     progress: &mut QuestProgressState,
     targets_info: Option<&AccountInfo>,
+    tutorial_targets_info: Option<&AccountInfo>,
     program_id: &Pubkey,
     period: u8,
     quest_id: u8,
@@ -3883,6 +4003,14 @@ fn claim_quest_reward(
             quest_requirement_met(period, quest_id, epoch, planet),
             GameStateError::QuestRequirementsNotMet
         );
+        validate_or_lock_tutorial_quest_reward_target(
+            tutorial_targets_info,
+            quest.authority,
+            planet.to_account_info().key(),
+            *program_id,
+            now,
+            quest_id,
+        )?;
     } else {
         sync_quest_progress_periods(progress, now);
         require!(
@@ -3964,6 +4092,7 @@ fn claim_quest_reward_live(
     planet: &mut PlanetQuestFields,
     progress: &mut QuestProgressState,
     targets_info: Option<&AccountInfo>,
+    tutorial_targets_info: Option<&AccountInfo>,
     planet_key: Pubkey,
     authority: Pubkey,
     program_id: &Pubkey,
@@ -3999,6 +4128,14 @@ fn claim_quest_reward_live(
             quest_requirement_met_live(period, quest_id, epoch, planet),
             GameStateError::QuestRequirementsNotMet
         );
+        validate_or_lock_tutorial_quest_reward_target(
+            tutorial_targets_info,
+            authority,
+            planet_key,
+            *program_id,
+            now,
+            quest_id,
+        )?;
     } else {
         sync_quest_progress_periods(progress, now);
         require!(
@@ -6978,5 +7115,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn tutorial_quest_target_slot_map_is_stable() {
+        let authority = Pubkey::new_unique();
+        let mut targets = empty_tutorial_quest_reward_targets(authority, 0);
+        let planet = Pubkey::new_unique();
+
+        let slot_0 = tutorial_quest_target_slot_mut(&mut targets, 0).unwrap();
+        assert_eq!(*slot_0, Pubkey::default());
+
+        *slot_0 = planet;
+        let slot_0_again = tutorial_quest_target_slot_mut(&mut targets, 0).unwrap();
+        assert_eq!(*slot_0_again, planet);
+
+        let slot_20 = tutorial_quest_target_slot_mut(&mut targets, 20).unwrap();
+        assert_eq!(*slot_20, Pubkey::default());
+
+        let invalid = tutorial_quest_target_slot_mut(&mut targets, 21);
+        assert!(invalid.is_err());
     }
 }

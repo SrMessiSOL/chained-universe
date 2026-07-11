@@ -206,6 +206,9 @@ pub struct InitializePlanetVault<'info> {
     /// CHECK: PDA, owner, and contents are validated/initialized manually.
     #[account(mut)]
     pub quest_reward_targets: UncheckedAccount<'info>,
+    /// CHECK: PDA, owner, and contents are validated/initialized manually.
+    #[account(mut)]
+    pub tutorial_quest_reward_targets: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -249,6 +252,9 @@ pub struct InitializeColonyVault<'info> {
     /// CHECK: PDA, owner, and contents are validated/initialized manually.
     #[account(mut)]
     pub quest_reward_targets: UncheckedAccount<'info>,
+    /// CHECK: PDA, owner, and contents are validated/initialized manually.
+    #[account(mut)]
+    pub tutorial_quest_reward_targets: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -391,6 +397,14 @@ pub struct InitializeQuestRewardTargets<'info> {
         bump
     )]
     pub quest_reward_targets: Account<'info, QuestRewardTargetState>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = TUTORIAL_QUEST_REWARD_TARGET_STATE_SPACE,
+        seeds = [b"quest_tutorial_reward_targets", authority.key().as_ref()],
+        bump
+    )]
+    pub tutorial_quest_reward_targets: Account<'info, TutorialQuestRewardTargetState>,
     pub system_program: Program<'info, System>,
 }
 
