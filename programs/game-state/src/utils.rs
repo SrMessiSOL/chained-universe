@@ -1704,6 +1704,20 @@ fn require_distinct_mission_coordinates(
     Ok(())
 }
 
+pub(crate) fn require_colony_cargo_within_initial_caps(
+    metal: u64,
+    crystal: u64,
+    deuterium: u64,
+) -> Result<()> {
+    require!(
+        metal <= BASE_STORAGE_CAP
+            && crystal <= BASE_STORAGE_CAP
+            && deuterium <= BASE_STORAGE_CAP,
+        GameStateError::ResourceCapExceeded
+    );
+    Ok(())
+}
+
 pub(crate) fn launch_fleet_planet(
     planet: &mut PlanetState,
     params: LaunchFleetParams,
@@ -1773,6 +1787,11 @@ pub(crate) fn launch_fleet_planet(
     }
     if params.mission_type == MISSION_COLONIZE {
         require!(params.colony_ship == 1, GameStateError::MissingColonyShip);
+        require_colony_cargo_within_initial_caps(
+            params.cargo_metal,
+            params.cargo_crystal,
+            params.cargo_deuterium,
+        )?;
     }
 
     settle_resources(planet, now)?;
@@ -3131,6 +3150,19 @@ mod tests {
     fn fleet_launch_rejects_source_coordinates_as_target() {
         assert!(require_distinct_mission_coordinates((1, 20, 3), (1, 20, 3)).is_err());
         assert!(require_distinct_mission_coordinates((1, 20, 3), (1, 20, 4)).is_ok());
+    }
+
+    #[test]
+    fn colony_cargo_cannot_exceed_initial_storage_caps() {
+        assert!(require_colony_cargo_within_initial_caps(
+            BASE_STORAGE_CAP,
+            BASE_STORAGE_CAP,
+            BASE_STORAGE_CAP
+        )
+        .is_ok());
+        assert!(require_colony_cargo_within_initial_caps(BASE_STORAGE_CAP + 1, 0, 0).is_err());
+        assert!(require_colony_cargo_within_initial_caps(0, BASE_STORAGE_CAP + 1, 0).is_err());
+        assert!(require_colony_cargo_within_initial_caps(0, 0, BASE_STORAGE_CAP + 1).is_err());
     }
 
     #[test]
