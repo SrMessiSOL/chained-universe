@@ -568,6 +568,11 @@ pub fn initialize_colony<'info>(
     )
 }
 
+fn require_allocated_owner_index_slot(slot: u32, planet_count: u32) -> Result<()> {
+    require!(slot < planet_count, GameStateError::InvalidArgs);
+    Ok(())
+}
+
 pub fn sync_planet_owner_index_vault(
     ctx: Context<SyncPlanetOwnerIndexVault>,
     slot: u32,
@@ -582,6 +587,7 @@ pub fn sync_planet_owner_index_vault(
         ctx.accounts.authority.key(),
         GameStateError::Unauthorized
     );
+    require_allocated_owner_index_slot(slot, ctx.accounts.player_profile.planet_count)?;
 
     let owner_index = &mut ctx.accounts.owner_index;
     if owner_index.authority != Pubkey::default() {
@@ -6677,6 +6683,13 @@ mod tests {
         let authority = Pubkey::new_unique();
         assert!(require_distinct_planet_transfer_authorities(authority, authority).is_err());
         assert!(require_distinct_planet_transfer_authorities(authority, Pubkey::new_unique()).is_ok());
+    }
+
+    #[test]
+    fn owner_index_sync_rejects_unallocated_slots() {
+        assert!(require_allocated_owner_index_slot(0, 1).is_ok());
+        assert!(require_allocated_owner_index_slot(1, 1).is_err());
+        assert!(require_allocated_owner_index_slot(u32::MAX, 1).is_err());
     }
 
     #[test]
