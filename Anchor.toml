@@ -20,4 +20,4 @@ members = [
 ]
 
 [scripts]
-test = "echo No workspace tests are currently configured for the game-state-only repo."
+test = "cargo test --workspace --lib --locked"

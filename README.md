@@ -60,6 +60,18 @@ Build only the market program:
 anchor build --program-name market
 ```
 
+## Test
+
+Run the complete backend unit and regression suite:
+
+```bash
+cargo test --workspace --lib --locked
+```
+
+This suite covers both on-chain programs and is required by GitHub Actions on
+every pull request and every push to `master`. Add or update a regression test
+with each behavioral or security fix.
+
 ## Deploy
 
 Example devnet deploy flow:
@@ -92,6 +104,7 @@ After deploying:
 ## Development Notes
 
 - `cargo check --workspace` is the quick local verification pass.
+- `cargo test --workspace --lib --locked` is the required backend test pass.
 - The frontend lives in a separate repository:
 
 ```text
