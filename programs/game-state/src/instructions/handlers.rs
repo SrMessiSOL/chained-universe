@@ -1479,16 +1479,13 @@ pub fn deposit_alliance_resources(
         _ => unreachable!(),
     }
 
-    let resource_xp = metal.saturating_add(crystal).saturating_add(deuterium)
-        / ALLIANCE_DEPOSIT_XP_PER_RESOURCE_UNIT;
-    let antimatter_xp = antimatter / ALLIANCE_DEPOSIT_XP_PER_ANTIMATTER_UNIT;
-    let base_xp = mission
-        .xp
-        .saturating_add(resource_xp)
-        .saturating_add(antimatter_xp);
+    let base_xp = alliance_deposit_xp(&mission, metal, crystal, deuterium, antimatter);
     let xp = apply_bps_bonus(base_xp, alliance_logistics_xp_bonus_bps(&alliance_treasury));
-    alliance.xp = alliance.xp.saturating_add(xp);
-    alliance.total_missions_completed = alliance.total_missions_completed.saturating_add(1);
+    alliance.xp = alliance.xp.checked_add(xp).ok_or(GameStateError::InvalidArgs)?;
+    alliance.total_missions_completed = alliance
+        .total_missions_completed
+        .checked_add(1)
+        .ok_or(GameStateError::InvalidArgs)?;
     refresh_alliance_level(&mut alliance);
     write_program_account(&alliance_info, &alliance)?;
     write_program_account(&membership_info, &membership)?;
@@ -1707,16 +1704,13 @@ pub fn deposit_alliance_resources_vault(
         _ => unreachable!(),
     }
 
-    let resource_xp = metal.saturating_add(crystal).saturating_add(deuterium)
-        / ALLIANCE_DEPOSIT_XP_PER_RESOURCE_UNIT;
-    let antimatter_xp = antimatter / ALLIANCE_DEPOSIT_XP_PER_ANTIMATTER_UNIT;
-    let base_xp = mission
-        .xp
-        .saturating_add(resource_xp)
-        .saturating_add(antimatter_xp);
+    let base_xp = alliance_deposit_xp(&mission, metal, crystal, deuterium, antimatter);
     let xp = apply_bps_bonus(base_xp, alliance_logistics_xp_bonus_bps(&alliance_treasury));
-    alliance.xp = alliance.xp.saturating_add(xp);
-    alliance.total_missions_completed = alliance.total_missions_completed.saturating_add(1);
+    alliance.xp = alliance.xp.checked_add(xp).ok_or(GameStateError::InvalidArgs)?;
+    alliance.total_missions_completed = alliance
+        .total_missions_completed
+        .checked_add(1)
+        .ok_or(GameStateError::InvalidArgs)?;
     refresh_alliance_level(&mut alliance);
 
     write_program_account(&alliance_info, &alliance)?;
@@ -3395,13 +3389,17 @@ fn alliance_level_threshold(level: u16) -> u64 {
 }
 
 fn refresh_alliance_level(alliance: &mut AllianceState) {
-    while alliance.level < u16::MAX {
-        let next = alliance.level.saturating_add(1);
-        if alliance.xp < alliance_level_threshold(next) {
-            break;
+    let mut low = alliance.level;
+    let mut high = u16::MAX;
+    while low < high {
+        let mid = low + (high - low) / 2 + 1;
+        if alliance.xp >= alliance_level_threshold(mid) {
+            low = mid;
+        } else {
+            high = mid - 1;
         }
-        alliance.level = next;
     }
+    alliance.level = low;
     alliance.max_members = alliance_max_members(alliance.level);
 }
 
@@ -4445,6 +4443,24 @@ struct AllianceDepositMissionEntry {
     deuterium: u64,
     antimatter: u64,
     xp: u64,
+}
+
+fn alliance_deposit_xp(
+    mission: &AllianceDepositMissionEntry,
+    metal: u64,
+    crystal: u64,
+    deuterium: u64,
+    antimatter: u64,
+) -> u64 {
+    let resource_xp = metal.saturating_add(crystal).saturating_add(deuterium)
+        / ALLIANCE_DEPOSIT_XP_PER_RESOURCE_UNIT;
+    let antimatter_xp = antimatter / ALLIANCE_DEPOSIT_XP_PER_ANTIMATTER_UNIT;
+    let variable_cap = mission
+        .xp
+        .saturating_mul(ALLIANCE_DEPOSIT_VARIABLE_XP_MULTIPLIER);
+    mission
+        .xp
+        .saturating_add(resource_xp.saturating_add(antimatter_xp).min(variable_cap))
 }
 
 const DAILY_ALLIANCE_DEPOSIT_MISSIONS: [AllianceDepositMissionEntry; 4] = [
@@ -6737,7 +6753,47 @@ mod tests {
 
         assert_eq!(alliance_trade_cost_discount_bps(&treasury), 2_500);
         assert_eq!(alliance_defense_deuterium_discount_bps(&treasury), 3_750);
-        assert_eq!(apply_alliance_upgrade_discounts(100, 100, 100, 100, &treasury), (75, 75, 63, 75));
+        assert_eq!(
+            apply_alliance_upgrade_discounts(100, 100, 100, 100, &treasury),
+            (75, 75, 63, 75)
+        );
+    }
+
+    #[test]
+    fn alliance_deposit_variable_xp_is_capped() {
+        let mission = AllianceDepositMissionEntry {
+            metal: 1_000,
+            crystal: 0,
+            deuterium: 0,
+            antimatter: 0,
+            xp: 80,
+        };
+
+        assert_eq!(alliance_deposit_xp(&mission, 1_000, 0, 0, 0), 81);
+        assert_eq!(
+            alliance_deposit_xp(&mission, u64::MAX, u64::MAX, u64::MAX, u64::MAX),
+            880
+        );
+    }
+
+    #[test]
+    fn alliance_level_refresh_handles_maximum_xp_in_constant_iterations() {
+        let mut alliance = AllianceState {
+            founder: Pubkey::new_unique(),
+            name: [0; MAX_ALLIANCE_NAME_LEN],
+            level: 1,
+            xp: u64::MAX,
+            member_count: 1,
+            max_members: BASE_ALLIANCE_MAX_MEMBERS,
+            total_missions_completed: 0,
+            created_at: 0,
+            bump: 0,
+        };
+
+        refresh_alliance_level(&mut alliance);
+
+        assert_eq!(alliance.level, u16::MAX);
+        assert_eq!(alliance.max_members, u16::MAX);
     }
 
     #[test]
