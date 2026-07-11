@@ -370,6 +370,17 @@ pub fn initialize_homeworld<'info>(
             ctx.accounts.planet_state.key(),
             ctx.program_id,
         )?;
+        if let Some(registry_info) = ctx.remaining_accounts.get(1) {
+            create_or_update_planet_ownership_registry(
+                registry_info,
+                &ctx.accounts.vault_signer.to_account_info(),
+                &ctx.accounts.system_program.to_account_info(),
+                authority,
+                ctx.accounts.planet_state.key(),
+                owner_index_info.key(),
+                ctx.program_id,
+            )?;
+        }
     }
 
     Ok(())
@@ -557,6 +568,17 @@ pub fn initialize_colony<'info>(
             ctx.accounts.planet_state.key(),
             ctx.program_id,
         )?;
+        if let Some(registry_info) = ctx.remaining_accounts.get(2) {
+            create_or_update_planet_ownership_registry(
+                registry_info,
+                &ctx.accounts.vault_signer.to_account_info(),
+                &ctx.accounts.system_program.to_account_info(),
+                authority,
+                ctx.accounts.planet_state.key(),
+                owner_index_info.key(),
+                ctx.program_id,
+            )?;
+        }
     }
 
     ctx.accounts.source_planet.clear_mission(slot as usize);
@@ -614,6 +636,24 @@ pub fn sync_planet_owner_index_vault(
     owner_index.planet = ctx.accounts.planet_state.key();
     owner_index.active = true;
     owner_index.bump = ctx.bumps.owner_index;
+
+    let registry = &mut ctx.accounts.ownership_registry;
+    if registry.planet != Pubkey::default() {
+        require_keys_eq!(
+            registry.planet,
+            ctx.accounts.planet_state.key(),
+            GameStateError::InvalidArgs
+        );
+        require_keys_eq!(
+            registry.authority,
+            ctx.accounts.authority.key(),
+            GameStateError::Unauthorized
+        );
+    }
+    registry.planet = ctx.accounts.planet_state.key();
+    registry.authority = ctx.accounts.authority.key();
+    registry.owner_index = owner_index.key();
+    registry.bump = ctx.bumps.ownership_registry;
     Ok(())
 }
 
@@ -1911,22 +1951,63 @@ fn create_or_update_planet_owner_index<'info>(
     write_planet_owner_index(account_info, authority, slot, planet, true, bump)
 }
 
-fn deactivate_planet_owner_index_if_present(
-    account_info: Option<&AccountInfo<'_>>,
+fn create_or_update_planet_ownership_registry<'info>(
+    registry_info: &AccountInfo<'info>,
+    payer_info: &AccountInfo<'info>,
+    system_program_info: &AccountInfo<'info>,
+    authority: Pubkey,
+    planet: Pubkey,
+    owner_index: Pubkey,
+    program_id: &Pubkey,
+) -> Result<()> {
+    let (expected_registry, bump) =
+        Pubkey::find_program_address(&[b"planet_ownership", planet.as_ref()], program_id);
+    require_keys_eq!(registry_info.key(), expected_registry, GameStateError::InvalidArgs);
+
+    if registry_info.data_is_empty() {
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"planet_ownership",
+            planet.as_ref(),
+            &[bump],
+        ]];
+        create_program_pda_account(
+            registry_info,
+            payer_info,
+            system_program_info,
+            PLANET_OWNERSHIP_REGISTRY_SPACE,
+            program_id,
+            signer_seeds,
+        )?;
+    } else {
+        let existing: PlanetOwnershipRegistry = read_program_account(registry_info, program_id)?;
+        require_keys_eq!(existing.planet, planet, GameStateError::InvalidArgs);
+        require_keys_eq!(existing.authority, authority, GameStateError::Unauthorized);
+    }
+
+    write_program_account(
+        registry_info,
+        &PlanetOwnershipRegistry {
+            planet,
+            authority,
+            owner_index,
+            bump,
+        },
+    )
+}
+
+fn deactivate_planet_owner_index(
+    account_info: &AccountInfo<'_>,
+    expected_index: Pubkey,
     authority: Pubkey,
     planet: Pubkey,
     program_id: &Pubkey,
 ) -> Result<()> {
-    let Some(info) = account_info else {
-        return Ok(());
-    };
-    if info.data_is_empty() {
-        return Ok(());
-    }
-    let index: PlanetOwnerIndex = read_program_account(info, program_id)?;
+    require_keys_eq!(account_info.key(), expected_index, GameStateError::InvalidArgs);
+    let index: PlanetOwnerIndex = read_program_account(account_info, program_id)?;
     require_keys_eq!(index.authority, authority, GameStateError::Unauthorized);
     require_keys_eq!(index.planet, planet, GameStateError::InvalidArgs);
-    write_planet_owner_index(info, index.authority, index.slot, index.planet, false, index.bump)
+    require!(index.active, GameStateError::InvalidArgs);
+    write_planet_owner_index(account_info, index.authority, index.slot, index.planet, false, index.bump)
 }
 
 fn read_checked_pubkey_at(data: &[u8], offset: usize) -> Result<Pubkey> {
@@ -6571,12 +6652,16 @@ pub fn transfer_planet<'info>(
         planet_key,
         ctx.program_id,
     )?;
-    deactivate_planet_owner_index_if_present(
-        ctx.remaining_accounts.get(1),
+    deactivate_planet_owner_index(
+        &ctx.remaining_accounts[1],
+        ctx.accounts.ownership_registry.owner_index,
         old_authority,
         planet_key,
         ctx.program_id,
     )?;
+
+    ctx.accounts.ownership_registry.authority = new_authority;
+    ctx.accounts.ownership_registry.owner_index = ctx.remaining_accounts[0].key();
 
     // Update ownership fields. The planet PDA address intentionally stays fixed.
     planet.authority = new_authority;
@@ -6620,7 +6705,7 @@ pub fn transfer_planet_from_market<'info>(
         GameStateError::PlanetHasActiveMissions
     );
 
-    require!(!ctx.remaining_accounts.is_empty(), GameStateError::InvalidArgs);
+    require!(ctx.remaining_accounts.len() >= 2, GameStateError::InvalidArgs);
     let new_owner_slot = ctx.accounts.new_player_profile.planet_count;
     create_or_update_planet_owner_index(
         &ctx.remaining_accounts[0],
@@ -6631,12 +6716,16 @@ pub fn transfer_planet_from_market<'info>(
         planet_key,
         ctx.program_id,
     )?;
-    deactivate_planet_owner_index_if_present(
-        ctx.remaining_accounts.get(1),
+    deactivate_planet_owner_index(
+        &ctx.remaining_accounts[1],
+        ctx.accounts.ownership_registry.owner_index,
         seller,
         planet_key,
         ctx.program_id,
     )?;
+
+    ctx.accounts.ownership_registry.authority = new_authority;
+    ctx.accounts.ownership_registry.owner_index = ctx.remaining_accounts[0].key();
 
     planet.authority = new_authority;
     planet.player = ctx.accounts.new_player_profile.key();

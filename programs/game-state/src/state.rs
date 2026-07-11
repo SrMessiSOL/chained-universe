@@ -26,6 +26,15 @@ pub struct PlanetOwnerIndex {
 
 #[account]
 #[derive(InitSpace)]
+pub struct PlanetOwnershipRegistry {
+    pub planet: Pubkey,
+    pub authority: Pubkey,
+    pub owner_index: Pubkey,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct AuthorizedVault {
     pub authority: Pubkey,
     pub vault: Pubkey,

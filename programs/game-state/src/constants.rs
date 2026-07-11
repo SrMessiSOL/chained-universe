@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::state::{
     AllianceJoinRequest, AllianceMembership, AllianceMetadata, AllianceState,
     AllianceTreasuryState, AuthorizedVault, FaucetClaim, GameConfig, PlanetCoordinates, PlanetState,
-    PlanetOwnerIndex, PlayerProfile, PublicPlanetCoordinates, PublicPlanetState, QuestProgressState,
+    PlanetOwnerIndex, PlanetOwnershipRegistry, PlayerProfile, PublicPlanetCoordinates, PublicPlanetState, QuestProgressState,
     QuestRewardTargetState, QuestState, StoreConfig, StorePurchaseState, TutorialQuestRewardTargetState,
     VaultBackup,
 };
@@ -65,6 +65,7 @@ pub const PLANET_COORDS_SPACE: usize = 8 + PlanetCoordinates::INIT_SPACE;
 pub const PUBLIC_PLANET_COORDS_SPACE: usize = 8 + PublicPlanetCoordinates::INIT_SPACE;
 pub const PLAYER_PROFILE_SPACE: usize = 8 + PlayerProfile::INIT_SPACE;
 pub const PLANET_OWNER_INDEX_SPACE: usize = 8 + PlanetOwnerIndex::INIT_SPACE;
+pub const PLANET_OWNERSHIP_REGISTRY_SPACE: usize = 8 + PlanetOwnershipRegistry::INIT_SPACE;
 pub const PLANET_STATE_SPACE: usize = 8 + PlanetState::INIT_SPACE;
 pub const PUBLIC_PLANET_STATE_SPACE: usize = 8 + PublicPlanetState::INIT_SPACE;
 pub const AUTHORIZED_VAULT_SPACE: usize = 8 + AuthorizedVault::INIT_SPACE;
