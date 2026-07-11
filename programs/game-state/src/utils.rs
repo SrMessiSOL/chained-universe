@@ -2966,13 +2966,27 @@ pub(crate) fn resolve_transport_planets(
         settle_resources(source, now)?;
         settle_resources(destination, now)?;
 
-        destination.credit_resources(
-            mission.cargo_metal,
-            mission.cargo_crystal,
-            mission.cargo_deuterium,
-        )?;
+        let delivered_metal = mission
+            .cargo_metal
+            .min(destination.metal_cap.saturating_sub(destination.metal));
+        let delivered_crystal = mission
+            .cargo_crystal
+            .min(destination.crystal_cap.saturating_sub(destination.crystal));
+        let delivered_deuterium = mission
+            .cargo_deuterium
+            .min(destination.deuterium_cap.saturating_sub(destination.deuterium));
+        destination.credit_resources(delivered_metal, delivered_crystal, delivered_deuterium)?;
 
-        if destination.authority == source.authority && destination.shipyard > 0 {
+        let returning_metal = mission.cargo_metal.saturating_sub(delivered_metal);
+        let returning_crystal = mission.cargo_crystal.saturating_sub(delivered_crystal);
+        let returning_deuterium = mission.cargo_deuterium.saturating_sub(delivered_deuterium);
+        let delivery_complete =
+            returning_metal == 0 && returning_crystal == 0 && returning_deuterium == 0;
+
+        if delivery_complete
+            && destination.authority == source.authority
+            && destination.shipyard > 0
+        {
             // Same owner with shipyard: ships can be stationed at destination.
             destination.small_cargo = destination.small_cargo.saturating_add(mission.small_cargo);
             destination.large_cargo = destination.large_cargo.saturating_add(mission.large_cargo);
@@ -3001,7 +3015,7 @@ pub(crate) fn resolve_transport_planets(
             return Ok(());
         }
 
-        // Different owner, or own planet without a shipyard: unload cargo and return ships.
+        // Return ships after delivery, or return the full fleet and cargo when delivery cannot fit.
         let return_fuel = launch_fuel_cost(
             mission.light_fighter,
             mission.heavy_fighter,
@@ -3029,9 +3043,9 @@ pub(crate) fn resolve_transport_planets(
 
         let return_flight_seconds = mission.arrive_ts.saturating_sub(mission.depart_ts).max(1);
 
-        source.missions[slot].cargo_metal = 0;
-        source.missions[slot].cargo_crystal = 0;
-        source.missions[slot].cargo_deuterium = 0;
+        source.missions[slot].cargo_metal = returning_metal;
+        source.missions[slot].cargo_crystal = returning_crystal;
+        source.missions[slot].cargo_deuterium = returning_deuterium;
         source.missions[slot].return_ts = now.saturating_add(return_flight_seconds);
         source.set_mission_applied(slot, true);
 
@@ -3043,7 +3057,11 @@ pub(crate) fn resolve_transport_planets(
         GameStateError::ReturnInFlight
     );
 
-    source.return_mission_ships_only(slot);
+    if mission.cargo_metal > 0 || mission.cargo_crystal > 0 || mission.cargo_deuterium > 0 {
+        source.return_mission_assets(slot)?;
+    } else {
+        source.return_mission_ships_only(slot);
+    }
     source.clear_mission(slot);
     source.active_missions = source.active_missions.saturating_sub(1);
     Ok(())
@@ -3496,6 +3514,80 @@ mod tests {
         assert_eq!(source.active_missions, 0);
         assert_eq!(source.small_cargo, 1);
         assert_eq!(source.missions[0].mission_type, 0);
+    }
+
+    #[test]
+    fn transport_returns_all_cargo_when_destination_storage_is_full() {
+        let mut source = test_planet();
+        source.authority = Pubkey::new_unique();
+        source.deuterium = 10_000;
+
+        let mut destination = test_planet();
+        destination.authority = Pubkey::new_unique();
+        destination.galaxy = 2;
+        destination.system = 2;
+        destination.position = 2;
+        destination.metal = destination.metal_cap;
+
+        source.missions[0] = MissionState {
+            small_cargo: 1,
+            cargo_metal: 100,
+            ..transport_mission(&destination)
+        };
+        source.active_missions = 1;
+
+        resolve_transport_planets(&mut source, &mut destination, 0, 20).unwrap();
+
+        assert_eq!(destination.metal, destination.metal_cap);
+        assert!(source.missions[0].applied);
+        assert_eq!(source.missions[0].cargo_metal, 100);
+        assert!(source.missions[0].return_ts > 20);
+
+        let return_ts = source.missions[0].return_ts;
+        resolve_transport_planets(&mut source, &mut destination, 0, return_ts).unwrap();
+
+        assert_eq!(source.active_missions, 0);
+        assert_eq!(source.small_cargo, 1);
+        assert_eq!(source.metal, 100);
+    }
+
+    #[test]
+    fn transport_delivers_available_capacity_and_returns_only_overflow() {
+        let mut source = test_planet();
+        source.authority = Pubkey::new_unique();
+        source.deuterium = 10_000;
+
+        let mut destination = test_planet();
+        destination.authority = Pubkey::new_unique();
+        destination.galaxy = 2;
+        destination.system = 2;
+        destination.position = 2;
+        destination.metal = destination.metal_cap - 40;
+
+        source.missions[0] = MissionState {
+            small_cargo: 1,
+            cargo_metal: 100,
+            ..transport_mission(&destination)
+        };
+        source.active_missions = 1;
+
+        resolve_transport_planets(&mut source, &mut destination, 0, 20).unwrap();
+
+        assert_eq!(destination.metal, destination.metal_cap);
+        assert_eq!(source.missions[0].cargo_metal, 60);
+
+        let return_ts = source.missions[0].return_ts;
+        source.metal = source.metal_cap;
+        assert!(resolve_transport_planets(&mut source, &mut destination, 0, return_ts).is_err());
+        assert_eq!(source.active_missions, 1);
+        assert_eq!(source.missions[0].cargo_metal, 60);
+
+        source.metal = source.metal.saturating_sub(60);
+        resolve_transport_planets(&mut source, &mut destination, 0, return_ts).unwrap();
+
+        assert_eq!(source.metal, source.metal_cap);
+        assert_eq!(source.small_cargo, 1);
+        assert_eq!(source.active_missions, 0);
     }
 
     #[test]
