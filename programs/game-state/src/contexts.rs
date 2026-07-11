@@ -289,6 +289,14 @@ pub struct SyncPlanetOwnerIndexVault<'info> {
         bump
     )]
     pub owner_index: Account<'info, PlanetOwnerIndex>,
+    #[account(
+        init_if_needed,
+        payer = vault_signer,
+        space = PLANET_OWNERSHIP_REGISTRY_SPACE,
+        seeds = [b"planet_ownership", planet_state.key().as_ref()],
+        bump
+    )]
+    pub ownership_registry: Account<'info, PlanetOwnershipRegistry>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1149,6 +1157,15 @@ pub struct TransferPlanet<'info> {
     )]
     pub planet_coords: Account<'info, PlanetCoordinates>,
 
+    #[account(
+        mut,
+        seeds = [b"planet_ownership", planet_state.key().as_ref()],
+        bump = ownership_registry.bump,
+        constraint = ownership_registry.planet == planet_state.key() @ GameStateError::InvalidArgs,
+        has_one = authority @ GameStateError::Unauthorized
+    )]
+    pub ownership_registry: Account<'info, PlanetOwnershipRegistry>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -1178,6 +1195,15 @@ pub struct TransferPlanetFromMarket<'info> {
         constraint = planet_coords.planet == planet_state.key() @ GameStateError::InvalidDestination,
     )]
     pub planet_coords: Account<'info, PlanetCoordinates>,
+
+    #[account(
+        mut,
+        seeds = [b"planet_ownership", planet_state.key().as_ref()],
+        bump = ownership_registry.bump,
+        constraint = ownership_registry.planet == planet_state.key() @ GameStateError::InvalidArgs,
+        constraint = ownership_registry.authority == seller.key() @ GameStateError::Unauthorized
+    )]
+    pub ownership_registry: Account<'info, PlanetOwnershipRegistry>,
 
     pub market_authority: Signer<'info>,
 

@@ -21,6 +21,8 @@ const PLANET_COORDS_SYSTEM_OFFSET: usize = 10;
 const PLANET_COORDS_POSITION_OFFSET: usize = 12;
 const PLANET_COORDS_PLANET_OFFSET: usize = 13;
 const PLANET_COORDS_AUTHORITY_OFFSET: usize = 45;
+const PLANET_OWNERSHIP_PLANET_OFFSET: usize = 8;
+const PLANET_OWNERSHIP_AUTHORITY_OFFSET: usize = 40;
 const PLANET_STATE_DISCRIMINATOR: [u8; 8] = [1, 25, 230, 69, 194, 252, 152, 240];
 const PLANET_COORDS_DISCRIMINATOR: [u8; 8] = [227, 189, 46, 7, 82, 27, 239, 25];
 
@@ -119,6 +121,31 @@ fn validate_planet_coords(
     Ok(())
 }
 
+fn validate_ownership_registry(
+    registry: &AccountInfo,
+    expected_planet: Pubkey,
+    expected_authority: Pubkey,
+) -> Result<()> {
+    let (expected_registry, _) = Pubkey::find_program_address(
+        &[b"planet_ownership", expected_planet.as_ref()],
+        &GAME_STATE_PROGRAM_ID,
+    );
+    require_keys_eq!(registry.key(), expected_registry, MarketError::InvalidSellerPlanet);
+    require_keys_eq!(*registry.owner, GAME_STATE_PROGRAM_ID, MarketError::InvalidSellerPlanet);
+    let data = registry.try_borrow_data()?;
+    require_keys_eq!(
+        read_pubkey_at(&data, PLANET_OWNERSHIP_PLANET_OFFSET)?,
+        expected_planet,
+        MarketError::InvalidSellerPlanet
+    );
+    require_keys_eq!(
+        read_pubkey_at(&data, PLANET_OWNERSHIP_AUTHORITY_OFFSET)?,
+        expected_authority,
+        MarketError::InvalidSellerPlanet
+    );
+    Ok(())
+}
+
 fn deactivate_listing_index(
     listing_index: &AccountInfo,
     expected_listing: Pubkey,
@@ -191,6 +218,9 @@ pub struct CreatePlanetListing<'info> {
     /// CHECK: game-state coords account is constrained by owner and validated against the planet PDA.
     #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
     pub planet_coords: UncheckedAccount<'info>,
+    /// CHECK: canonical game-state ownership registry is validated against planet and seller.
+    #[account(owner = GAME_STATE_PROGRAM_ID)]
+    pub ownership_registry: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -265,6 +295,10 @@ pub struct BuyPlanetListing<'info> {
     #[account(mut, address = listing.planet_coords @ MarketError::InvalidSellerPlanet, owner = GAME_STATE_PROGRAM_ID)]
     pub planet_coords: UncheckedAccount<'info>,
 
+    /// CHECK: canonical game-state ownership registry, validated by the game-state CPI.
+    #[account(mut, owner = GAME_STATE_PROGRAM_ID)]
+    pub ownership_registry: UncheckedAccount<'info>,
+
     /// CHECK: buyer profile is validated and updated by the game-state CPI.
     #[account(mut)]
     pub buyer_profile: UncheckedAccount<'info>,
@@ -290,6 +324,11 @@ pub fn create_planet_listing(
     )?;
     validate_planet_coords(
         &ctx.accounts.planet_coords.to_account_info(),
+        ctx.accounts.planet.key(),
+        ctx.accounts.seller.key(),
+    )?;
+    validate_ownership_registry(
+        &ctx.accounts.ownership_registry.to_account_info(),
         ctx.accounts.planet.key(),
         ctx.accounts.seller.key(),
     )?;
@@ -471,6 +510,7 @@ pub fn buy_planet_listing<'info>(
         AccountMeta::new(ctx.accounts.buyer_profile.key(), false),
         AccountMeta::new(ctx.accounts.planet.key(), false),
         AccountMeta::new(ctx.accounts.planet_coords.key(), false),
+        AccountMeta::new(ctx.accounts.ownership_registry.key(), false),
         AccountMeta::new_readonly(ctx.accounts.market_escrow_authority.key(), true),
         AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
     ];
@@ -494,6 +534,7 @@ pub fn buy_planet_listing<'info>(
         ctx.accounts.buyer_profile.to_account_info(),
         ctx.accounts.planet.to_account_info(),
         ctx.accounts.planet_coords.to_account_info(),
+        ctx.accounts.ownership_registry.to_account_info(),
         ctx.accounts.market_escrow_authority.to_account_info(),
         ctx.accounts.system_program.to_account_info(),
         ctx.accounts.game_program.to_account_info(),
