@@ -21,6 +21,16 @@ const PLANET_COORDS_SYSTEM_OFFSET: usize = 10;
 const PLANET_COORDS_POSITION_OFFSET: usize = 12;
 const PLANET_COORDS_PLANET_OFFSET: usize = 13;
 const PLANET_COORDS_AUTHORITY_OFFSET: usize = 45;
+const PLANET_STATE_DISCRIMINATOR: [u8; 8] = [1, 25, 230, 69, 194, 252, 152, 240];
+const PLANET_COORDS_DISCRIMINATOR: [u8; 8] = [227, 189, 46, 7, 82, 27, 239, 25];
+
+fn require_account_discriminator(data: &[u8], expected: &[u8; 8]) -> Result<()> {
+    require!(
+        data.len() >= expected.len() && data[..expected.len()] == *expected,
+        MarketError::InvalidSellerPlanet
+    );
+    Ok(())
+}
 
 fn read_pubkey_at(data: &[u8], offset: usize) -> Result<Pubkey> {
     require!(data.len() >= offset + 32, MarketError::InvalidSellerPlanet);
@@ -31,6 +41,7 @@ fn read_pubkey_at(data: &[u8], offset: usize) -> Result<Pubkey> {
 
 fn validate_planet_authority(planet: &AccountInfo, expected_authority: Pubkey) -> Result<()> {
     let data = planet.try_borrow_data()?;
+    require_account_discriminator(&data, &PLANET_STATE_DISCRIMINATOR)?;
     let authority = read_pubkey_at(&data, PLANET_STATE_AUTHORITY_OFFSET)?;
     require_keys_eq!(
         authority,
@@ -67,6 +78,7 @@ fn validate_planet_coords(
         MarketError::InvalidSellerPlanet
     );
     let data = planet_coords.try_borrow_data()?;
+    require_account_discriminator(&data, &PLANET_COORDS_DISCRIMINATOR)?;
     require!(
         data.len() >= PLANET_COORDS_AUTHORITY_OFFSET + 32,
         MarketError::InvalidSellerPlanet
@@ -522,6 +534,19 @@ pub fn buy_planet_listing<'info>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_planet_validators_reject_wrong_account_types() {
+        let mut planet_data = vec![0u8; PLANET_STATE_ACTIVE_MISSIONS_OFFSET + 1];
+        assert!(require_account_discriminator(&planet_data, &PLANET_STATE_DISCRIMINATOR).is_err());
+        planet_data[..8].copy_from_slice(&PLANET_STATE_DISCRIMINATOR);
+        assert!(require_account_discriminator(&planet_data, &PLANET_STATE_DISCRIMINATOR).is_ok());
+
+        let mut coords_data = vec![0u8; PLANET_COORDS_AUTHORITY_OFFSET + 32];
+        assert!(require_account_discriminator(&coords_data, &PLANET_COORDS_DISCRIMINATOR).is_err());
+        coords_data[..8].copy_from_slice(&PLANET_COORDS_DISCRIMINATOR);
+        assert!(require_account_discriminator(&coords_data, &PLANET_COORDS_DISCRIMINATOR).is_ok());
+    }
 
     #[test]
     fn planet_state_active_missions_offset_matches_layout() {
