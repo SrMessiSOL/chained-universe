@@ -1122,8 +1122,6 @@ pub struct TransferPlanet<'info> {
 
     #[account(
         mut,
-        seeds = [b"planet_state", authority.key().as_ref(), &planet_state.planet_index.to_le_bytes()],
-        bump = planet_state.bump,
         has_one = authority @ GameStateError::Unauthorized
     )]
     pub planet_state: Account<'info, PlanetState>,
