@@ -400,6 +400,11 @@ pub fn initialize_colony<'info>(
     require!(!mission.applied, GameStateError::AlreadyResolved);
     require!(now >= mission.arrive_ts, GameStateError::MissionInFlight);
     require!(mission.colony_ship == 1, GameStateError::MissingColonyShip);
+    require_colony_cargo_within_initial_caps(
+        mission.cargo_metal,
+        mission.cargo_crystal,
+        mission.cargo_deuterium,
+    )?;
     require!(
         mission.target_galaxy == params.galaxy
             && mission.target_system == params.system
