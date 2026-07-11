@@ -3577,9 +3577,15 @@ mod tests {
         assert_eq!(source.missions[0].cargo_metal, 60);
 
         let return_ts = source.missions[0].return_ts;
+        source.metal = source.metal_cap;
+        assert!(resolve_transport_planets(&mut source, &mut destination, 0, return_ts).is_err());
+        assert_eq!(source.active_missions, 1);
+        assert_eq!(source.missions[0].cargo_metal, 60);
+
+        source.metal = source.metal.saturating_sub(60);
         resolve_transport_planets(&mut source, &mut destination, 0, return_ts).unwrap();
 
-        assert_eq!(source.metal, 60);
+        assert_eq!(source.metal, source.metal_cap);
         assert_eq!(source.small_cargo, 1);
         assert_eq!(source.active_missions, 0);
     }
