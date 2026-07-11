@@ -1177,9 +1177,10 @@ pub fn expel_alliance_member(ctx: Context<ExpelAllianceMember>) -> Result<()> {
         ctx.accounts.leader.key() != ctx.accounts.target.key(),
         GameStateError::CannotExpelAllianceLeader
     );
-    ctx.accounts.alliance.member_count = ctx.accounts.alliance.member_count.saturating_sub(1);
-    ctx.accounts.target_membership.role = 0;
-    Ok(())
+    deactivate_alliance_membership(
+        &mut ctx.accounts.alliance,
+        &mut ctx.accounts.target_membership,
+    )
 }
 
 pub fn transfer_alliance_leadership(ctx: Context<TransferAllianceLeadership>) -> Result<()> {
@@ -1198,8 +1199,17 @@ pub fn leave_alliance(ctx: Context<LeaveAlliance>) -> Result<()> {
         ctx.accounts.membership.role != 2,
         GameStateError::AllianceFounderCannotLeave
     );
-    ctx.accounts.alliance.member_count = ctx.accounts.alliance.member_count.saturating_sub(1);
-    ctx.accounts.membership.role = 0;
+    deactivate_alliance_membership(&mut ctx.accounts.alliance, &mut ctx.accounts.membership)
+}
+
+fn deactivate_alliance_membership(
+    alliance: &mut AllianceState,
+    membership: &mut AllianceMembership,
+) -> Result<()> {
+    require!(membership.role > 0, GameStateError::InvalidAllianceMember);
+    require!(alliance.member_count > 0, GameStateError::InvalidAllianceMember);
+    alliance.member_count -= 1;
+    membership.role = 0;
     Ok(())
 }
 
@@ -6947,6 +6957,51 @@ mod tests {
         assert_eq!(membership.daily_claimed_mask, 0);
         assert_eq!(membership.weekly_claimed_mask, 0);
         assert_eq!(membership.monthly_claimed_mask, 0);
+    }
+
+    #[test]
+    fn inactive_alliance_membership_cannot_decrement_member_count_again() {
+        let alliance_key = Pubkey::new_unique();
+        let mut alliance = AllianceState {
+            founder: Pubkey::new_unique(),
+            name: [0; MAX_ALLIANCE_NAME_LEN],
+            level: 1,
+            xp: 0,
+            member_count: 2,
+            max_members: BASE_ALLIANCE_MAX_MEMBERS,
+            total_missions_completed: 0,
+            created_at: 0,
+            bump: 0,
+        };
+        let mut membership = inactive_membership(Pubkey::new_unique(), alliance_key);
+
+        assert!(deactivate_alliance_membership(&mut alliance, &mut membership).is_err());
+        assert_eq!(alliance.member_count, 2);
+        assert_eq!(membership.role, 0);
+    }
+
+    #[test]
+    fn active_alliance_membership_decrements_member_count_once() {
+        let alliance_key = Pubkey::new_unique();
+        let mut alliance = AllianceState {
+            founder: Pubkey::new_unique(),
+            name: [0; MAX_ALLIANCE_NAME_LEN],
+            level: 1,
+            xp: 0,
+            member_count: 2,
+            max_members: BASE_ALLIANCE_MAX_MEMBERS,
+            total_missions_completed: 0,
+            created_at: 0,
+            bump: 0,
+        };
+        let mut membership = inactive_membership(Pubkey::new_unique(), alliance_key);
+        membership.role = 1;
+
+        deactivate_alliance_membership(&mut alliance, &mut membership).unwrap();
+        assert_eq!(alliance.member_count, 1);
+        assert_eq!(membership.role, 0);
+        assert!(deactivate_alliance_membership(&mut alliance, &mut membership).is_err());
+        assert_eq!(alliance.member_count, 1);
     }
 
     #[test]
