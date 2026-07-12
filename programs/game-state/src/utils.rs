@@ -1241,6 +1241,24 @@ pub(crate) fn finish_research_planet(planet: &mut PlanetState, now: i64) -> Resu
     finish_research_now(planet, now)
 }
 
+fn ceil_sqrt_distance(value: u64) -> u64 {
+    if value <= 1 {
+        return value;
+    }
+
+    let mut low = 1u64;
+    let mut high = value.min(1_000_000_000);
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if mid.saturating_mul(mid) >= value {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+    low
+}
+
 pub(crate) fn base_flight_seconds(
     from_galaxy: u16,
     from_system: u16,
@@ -1255,13 +1273,13 @@ pub(crate) fn base_flight_seconds(
 
     if galaxy_delta > 0 {
         86_400u64
-            .saturating_mul(galaxy_delta)
-            .saturating_add(3_600u64.saturating_mul(system_delta))
+            .saturating_mul(ceil_sqrt_distance(galaxy_delta))
+            .saturating_add(3_600u64.saturating_mul(ceil_sqrt_distance(system_delta)))
             .saturating_add(300u64.saturating_mul(position_delta))
             .max(86_400)
     } else if system_delta > 0 {
         3_600u64
-            .saturating_mul(system_delta)
+            .saturating_mul(ceil_sqrt_distance(system_delta))
             .saturating_add(300u64.saturating_mul(position_delta))
             .max(3_600)
     } else {
@@ -3362,6 +3380,16 @@ mod tests {
             mission_flight_seconds(1, 1, 1, 300, 1, 1, 100, fleet_speed, &planet);
 
         assert!(one_galaxy_jump < many_galaxy_jumps);
+    }
+
+    #[test]
+    fn long_distance_travel_uses_friendly_sqrt_curve() {
+        assert_eq!(base_flight_seconds(1, 1, 1, 2, 1, 1), 86_400);
+        assert_eq!(base_flight_seconds(1, 1, 1, 355, 1, 1), 19 * 86_400);
+        assert_eq!(base_flight_seconds(1, 1, 1, 999, 1, 1), 32 * 86_400);
+
+        assert_eq!(base_flight_seconds(1, 1, 1, 1, 2, 1), 3_600);
+        assert_eq!(base_flight_seconds(1, 1, 1, 1, 999, 1), 32 * 3_600);
     }
 
     #[test]
