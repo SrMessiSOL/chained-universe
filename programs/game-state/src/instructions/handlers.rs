@@ -1875,6 +1875,7 @@ fn write_program_account<T: AccountSerialize>(
     account_info: &AccountInfo,
     account: &T,
 ) -> Result<()> {
+    ensure_program_account_owner(account_info)?;
     let mut encoded = Vec::new();
     account.try_serialize(&mut encoded)?;
     let mut data = account_info.try_borrow_mut_data()?;
@@ -4338,6 +4339,15 @@ pub fn update_store_config(ctx: Context<UpdateStoreConfig>, enabled: bool) -> Re
     ctx.accounts.store_config.usdc_mint = ctx.accounts.usdc_mint.key();
     ctx.accounts.store_config.treasury_usdc_account = ctx.accounts.treasury_usdc_account.key();
     ctx.accounts.store_config.enabled = enabled;
+    Ok(())
+}
+
+fn ensure_program_account_owner(account_info: &AccountInfo) -> Result<()> {
+    require_keys_eq!(
+        *account_info.owner,
+        crate::ID,
+        GameStateError::Unauthorized
+    );
     Ok(())
 }
 
@@ -7002,6 +7012,45 @@ pub fn accelerate_mission_with_antimatter(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn program_account_owner_guard_rejects_foreign_owner() {
+        let key = Pubkey::new_unique();
+        let foreign_owner = Pubkey::new_unique();
+        let mut lamports = 1;
+        let mut data = vec![0u8; 16];
+        let account = AccountInfo::new(
+            &key,
+            false,
+            true,
+            &mut lamports,
+            &mut data,
+            &foreign_owner,
+            false,
+            0,
+        );
+
+        assert!(ensure_program_account_owner(&account).is_err());
+    }
+
+    #[test]
+    fn program_account_owner_guard_accepts_game_state_owner() {
+        let key = Pubkey::new_unique();
+        let mut lamports = 1;
+        let mut data = vec![0u8; 16];
+        let account = AccountInfo::new(
+            &key,
+            false,
+            true,
+            &mut lamports,
+            &mut data,
+            &crate::ID,
+            false,
+            0,
+        );
+
+        assert!(ensure_program_account_owner(&account).is_ok());
+    }
 
     fn empty_alliance_treasury() -> AllianceTreasuryState {
         AllianceTreasuryState {
